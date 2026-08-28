@@ -1,5 +1,5 @@
 """
-MQS ChatPilot - Cloud Webhook Server with OmniRoute Support
+MQS ChatPilot - Cloud Webhook Server for Render Deployment
 Deployed to Render: https://mqs-chatpilot.onrender.com
 """
 import os, json, re, time
@@ -29,6 +29,7 @@ def load_clients():
     return []
 
 _env_page = os.environ.get("PAGE_TOKEN") or os.environ.get("PAGE_ACCESS_TOKEN")
+_env_key = os.environ.get("GEMINI_KEY") or os.environ.get("OMNI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "sk-df1543af0a48b86d-664eae-f73acc9e"
 _env_verify = os.environ.get("VERIFY_TOKEN")
 _env_pid = os.environ.get("PAGE_ID")
 
@@ -40,9 +41,7 @@ if not clients and _env_page:
         "config": {
             "page_access_token": _env_page,
             "verify_token": _env_verify or "mqs_verify_2026",
-            "ai_provider": "omniroute",
-            "ai_api_key": "sk-df1543af0a48b86d-664eae-f73acc9e",
-            "omni_base_url": "http://localhost:20128/v1",
+            "ai_api_key": _env_key,
             "port": 5000,
             "business_info": {
                 "name": "Balsa ni Mac", "location": "Calatagan, Batangas",
@@ -66,11 +65,8 @@ elif _env_page and clients:
     clients[0]["config"]["page_access_token"] = _env_page
     if _env_pid: clients[0]["page_id"] = _env_pid
 
-# Naka-embed na rin dito ang iyong OmniRoute API Key sakaling mag-reload ang config
 for c in clients:
-    c["config"]["ai_api_key"] = "sk-df1543af0a48b86d-664eae-f73acc9e"
-    if not c["config"].get("omni_base_url"):
-        c["config"]["omni_base_url"] = "http://localhost:20128/v1"
+    c["config"]["ai_api_key"] = _env_key
 
 def get_client_by_page_id(pid):
     if not pid: return None
@@ -116,10 +112,7 @@ def smart_fallback_reply(text, biz):
     else:
         return f"Hello po! Welcome sa {biz.get('name','Balsa ni Mac')} sa {biz.get('location','Calatagan')}. Day tour po tayo (7AM-4PM) sa halagang P{biz.get('price_day_amount','3500')} ({biz.get('capacity','15-20 pax')}). May gusto po ba kayong itanong o gustong i-book na date?"
 
-def call_omniroute(client_config, biz, history, text):
-    base_url = client_config.get("omni_base_url", "http://localhost:20128/v1").rstrip("/")
-    api_key = client_config.get("ai_api_key", "sk-df1543af0a48b86d-664eae-f73acc9e")
-    
+def call_ai(api_key, biz, history, text):
     prompt_lines = [
         f"You are a friendly, warm, human-like booking assistant for {biz.get('name','Balsa')} in {biz.get('location','Calatagan')}.",
         f"Auto-detect the customer's language and reply in the SAME language they used. Keep it natural and conversational.",
@@ -145,31 +138,18 @@ def call_omniroute(client_config, biz, history, text):
     prompt_lines.append(f"\nLatest customer message: {text}")
     prompt = "\n".join(prompt_lines)
 
-    url = f"{base_url}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
-    models_to_try = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-    
+    # Subukan direktang tawagin ang Google Gemini API gamit ang tamang recommended models
+    models_to_try = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
     for mdl in models_to_try:
-        payload = {
-            "model": mdl,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.7
-        }
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={api_key}"
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
         try:
-            r = requests.post(url, json=payload, headers=headers, timeout=15)
+            r = requests.post(url, json=payload, timeout=10)
             if r.status_code == 200:
                 res_json = r.json()
-                content = res_json.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-                if content:
-                    return content
-            else:
-                print(f"[OMNIROUTE] Model {mdl} status {r.status_code}: {r.text}", flush=True)
+                txt = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+                if txt: return txt
         except Exception as e:
-            print(f"[OMNIROUTE] Exception on {mdl}: {e}", flush=True)
             continue
             
     return None
@@ -187,8 +167,9 @@ def generate_reply(client, sender_id, text):
 
     config = client["config"]
     biz = config["business_info"]
+    api_key = config.get("ai_api_key", "")
 
-    result = call_omniroute(config, biz, sess["history"], text)
+    result = call_ai(api_key, biz, sess["history"], text)
     if result:
         sess["history"].append(f"AI: {result}")
         save_sessions()
@@ -202,7 +183,7 @@ def generate_reply(client, sender_id, text):
 app = Flask(__name__)
 
 @app.route("/")
-def home(): return jsonify({"status":"MQS ChatPilot OmniRoute Live","clients":len(clients)})
+def home(): return jsonify({"status":"MQS ChatPilot Cloud Live","clients":len(clients)})
 
 @app.route("/health")
 def health(): return jsonify({"ok":True})
@@ -239,6 +220,8 @@ def webhook():
                     if reply: send_fb_message(client, sender, reply)
                 except Exception as e:
                     print(f"[WEBHOOK] ERROR {e}", flush=True)
+    for ev in entry.get("messaging", []): # safety fallback
+        pass
     return "EVENT_RECEIVED", 200
 
 if __name__ == "__main__":
