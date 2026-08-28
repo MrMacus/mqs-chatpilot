@@ -109,66 +109,6 @@ def save_bookings(cid, data):
         with open(BOOKINGS_PATH,'w',encoding='utf-8') as f: json.dump(data,f,indent=4,ensure_ascii=False)
     except: pass
 
-def check_availability(cid, date_str):
-    bookings = load_bookings(cid)
-    date_str = date_str.strip().lower()
-    for b in bookings:
-        if b.get("status")=="cancelled": continue
-        bdate = b.get("date","").lower()
-        if bdate and (bdate==date_str or bdate in date_str or date_str in bdate):
-            return False, b
-    return True, None
-
-def create_inquiry(cid, sender_id, date, pax, name, contact, tour="Day Tour"):
-    bookings = load_bookings(cid)
-    client = next((c for c in clients if c["id"]==cid), clients[0])
-    biz = client["config"]["business_info"]
-    inq = {
-        "id": f"INQ{int(time.time())%100000:05d}",
-        "customer_fb_id": sender_id, "customer_name": name or "Unknown",
-        "contact": contact, "date": date, "tour_type": tour, "pax": pax,
-        "price": biz.get("price_day_amount","3500"),
-        "downpayment": biz.get("downpayment","1000"),
-        "status": "INQUIRY", "gcash_ref": "",
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    bookings.append(inq)
-    save_bookings(cid, bookings)
-    send_owner_notif(client, inq, "INQUIRY")
-    return inq
-
-def create_booking(cid, sender_id, date, pax, name, contact, tour="Day Tour"):
-    bookings = load_bookings(cid)
-    client = next((c for c in clients if c["id"]==cid), clients[0])
-    biz = client["config"]["business_info"]
-    bk = {
-        "id": f"BK{int(time.time())%100000:05d}",
-        "customer_fb_id": sender_id, "customer_name": name,
-        "contact": contact, "date": date, "tour_type": tour, "pax": pax,
-        "price": biz.get("price_day_amount","3500"),
-        "downpayment": biz.get("downpayment","1000"),
-        "status": "PENDING_PAYMENT",
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    bookings.append(bk)
-    save_bookings(cid, bookings)
-    send_owner_notif(client, bk, "BOOKING")
-    return bk
-
-def send_owner_notif(client, booking, kind):
-    biz = client["config"]["business_info"]
-    owner_id = biz.get("owner_fb_id","").strip()
-    token = client["config"].get("page_access_token","")
-    if not owner_id or not token or not owner_id.isdigit(): return
-    if kind=="INQUIRY":
-        msg = f"NEW INQUIRY - {biz.get('name','')}\n{booking['customer_name']} - {booking['contact']}\n{booking['date']} | {booking['pax']} pax\nTawagan: {booking['contact']}"
-    else:
-        msg = f"NEW BOOKING - {biz.get('name','')}\n{booking['customer_name']} - {booking['contact']}\n{booking['date']} | {booking['pax']} pax | P{booking['price']}"
-    try:
-        url = f"https://graph.facebook.com/v19.0/me/messages?access_token={token}"
-        requests.post(url, json={"recipient":{"id":owner_id},"message":{"text":msg}}, timeout=8)
-    except: pass
-
 def send_fb_message(client, recipient_id, text):
     token = client["config"].get("page_access_token","")
     if not token: return False
@@ -180,7 +120,10 @@ def send_fb_message(client, recipient_id, text):
         return False
 
 def call_gemini(api_key, biz, history, text, extra_context=""):
-    if not api_key: return None
+    if not api_key:
+        print("[REST GEMINI] ERROR: Walang nakalagay na Gemini API Key!", flush=True)
+        return None
+        
     prompt_lines = [
         f"You are a friendly, warm, human-like booking assistant for {biz.get('name','Balsa')} in {biz.get('location','Calatagan')}.",
         f"Auto-detect the customer's language and reply in the SAME language they used. Keep it natural and conversational.",
@@ -207,50 +150,33 @@ def call_gemini(api_key, biz, history, text, extra_context=""):
     prompt_lines.append(f"\nLatest customer message: {text}")
     prompt = "\n".join(prompt_lines)
 
-    # Direct REST API call to Gemini v1 (bypassing SDK version bugs)
-    for mdl in ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
-        url = f"https://generativelanguage.googleapis.com/v1/models/{mdl}:generateContent?key={api_key}"
+    # Subukan natin ang iba't ibang bersyon ng v1 endpoints at model names
+    endpoints = [
+        ("v1", "gemini-1.5-flash"),
+        ("v1", "gemini-1.5-pro"),
+        ("v1beta", "gemini-1.5-flash"),
+        ("v1beta", "gemini-pro")
+    ]
+    
+    for ver, mdl in endpoints:
+        url = f"https://generativelanguage.googleapis.com/{ver}/models/{mdl}:generateContent?key={api_key}"
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         try:
             r = requests.post(url, json=payload, timeout=10)
+            print(f"[REST GEMINI] Trying {ver}/{mdl} -> Status: {r.status_code}", flush=True)
             if r.status_code == 200:
                 res_json = r.json()
                 txt = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
-                if txt: return txt
+                if txt:
+                    print(f"[REST GEMINI] Success with {mdl}!", flush=True)
+                    return txt
+            else:
+                print(f"[REST GEMINI] Response error body: {r.text}", flush=True)
         except Exception as e:
-            print(f"[REST GEMINI] {mdl} error: {e}", flush=True)
+            print(f"[REST GEMINI] Exception on {mdl}: {e}", flush=True)
             continue
+            
     return None
-
-def extract_booking_info(text, sess):
-    t = text.lower()
-    for pat in [r"(\d{4}-\d{1,2}-\d{1,2})", r"(\d{1,2}/\d{1,2})",
-                r"(jan\w*\s*\d{1,2})", r"(feb\w*\s*\d{1,2})", r"(mar\w*\s*\d{1,2})",
-                r"(apr\w*\s*\d{1,2})", r"(may\s*\d{1,2})", r"(june?\s*\d{1,2})",
-                r"(july?\s*\d{1,2})", r"(aug\w*\s*\d{1,2})", r"(sept?\s*\d{1,2})",
-                r"(oct\w*\s*\d{1,2})", r"(nov\w*\s*\d{1,2})", r"(dec\w*\s*\d{1,2})"]:
-        m = re.search(pat, t, re.I)
-        if m: sess["pending_date"] = m.group(1).strip(); break
-    
-    m = re.search(r"(\d{1,2})\s*pax", t, re.I)
-    if m: sess["pending_pax"] = m.group(1)
-    elif re.search(r"(\d{1,2})\s*kami", t, re.I):
-        sess["pending_pax"] = re.search(r"(\d{1,2})\s*kami", t, re.I).group(1)
-
-    m = re.search(r"09\d{9}", t)
-    if m: sess["pending_contact"] = m.group(0)
-
-    m = re.search(r"ref\s*[:#]?\s*(\w+)", t, re.I)
-    if m and len(m.group(1)) > 4: sess["pending_ref"] = m.group(1)
-
-    if sess.get("pending_date") and sess.get("pending_pax") and not sess.get("pending_name"):
-        if not any(k in t for k in ["magkano","price","available","pax","day","gcash","ref","hello","hi"]):
-            m = re.search(r"09\d{9}", text)
-            if m:
-                name = text.replace(m.group(0), "").strip(" ,-")
-                if name: sess["pending_name"] = name
-            elif 2 <= len(text.split()) <= 4 and len(text) < 30 and not re.search(r"\d{2,}", text):
-                sess["pending_name"] = text.strip()
 
 def generate_reply(client, sender_id, text):
     cid = client["id"]
@@ -264,8 +190,6 @@ def generate_reply(client, sender_id, text):
     sess["history"].append(f"Customer: {text}")
     if len(sess["history"]) > 12: sess["history"] = sess["history"][-12:]
 
-    extract_booking_info(text, sess)
-    low = text.lower().strip()
     biz = client["config"]["business_info"]
     api_key = client["config"].get("ai_api_key", "")
     extra_context = ""
