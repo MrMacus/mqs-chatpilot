@@ -37,9 +37,42 @@ _env_page = _os.environ.get("PAGE_TOKEN") or _os.environ.get("PAGE_ACCESS_TOKEN"
 _env_gemini = _os.environ.get("GEMINI_KEY") or _os.environ.get("GEMINI_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
 _env_verify = _os.environ.get("VERIFY_TOKEN")
 clients = load_clients()
-if _env_page and clients:
+# if no clients file (Render), create from ENV
+if not clients and _env_page:
+    print(f"[INIT] Creating client from ENV (no file) PAGE_ID={_os.environ.get('PAGE_ID','')}", flush=True)
+    clients = [{
+        "id": "balsa_1",
+        "name": "Balsa ni Mac",
+        "page_id": _os.environ.get("PAGE_ID","1337624369425179"),
+        "config": {
+            "page_access_token": _env_page,
+            "verify_token": _env_verify or "mqs_verify_2026",
+            "ai_provider": "gemini",
+            "ai_api_key": _env_gemini or "",
+            "port": 5000,
+            "business_info": {
+                "name": "Balsa ni Mac",
+                "location": "Calatagan, Batangas",
+                "price_day": "3500 (7am-4pm) - Day Tour ONLY",
+                "price_day_amount": "3500",
+                "capacity": "15-20 pax",
+                "inclusions": "Floating cottage, videoke, ihawan, life vest, lutuan",
+                "contact": "09123456789",
+                "gcash_number": "09123456789",
+                "gcash_name": "Mac David Bernal",
+                "downpayment": "1000",
+                "google_maps_link": "https://maps.app.goo.gl/DITO",
+                "balsa_photos_url": "https://facebook.com/balsa",
+                "dti_permit_url": "https://drive.google.com/permit",
+                "extra_info": "Day Tour 7am-4pm",
+                "cancellation_policy": "No refund 1 day before",
+                "owner_fb_id": ""
+            },
+            "ai_system_prompt": "You are friendly booking assistant for {name} in {location}. Day Tour P{price_day_amount} 7am-4pm. Capacity {capacity}, Inclusions {inclusions}"
+        }
+    }]
+elif _env_page and clients:
     clients[0]["config"]["page_access_token"] = _env_page
-    # also set page_id if provided
     _env_pid = _os.environ.get("PAGE_ID")
     if _env_pid: clients[0]["page_id"] = _env_pid
 if _env_gemini and clients:
@@ -48,6 +81,7 @@ if _env_gemini and clients:
 if _env_verify and clients:
     for c in clients:
         c["config"]["verify_token"] = _env_verify
+print(f"[INIT] clients loaded: {len(clients)} first_id={clients[0]['id'] if clients else 'none'} page_id={clients[0].get('page_id','') if clients else ''}", flush=True)
 # build token->client map and page_id map
 def get_client_by_page_id(pid):
     if not pid: return None
