@@ -1,5 +1,5 @@
 """
-MQS ChatPilot - Cloud Webhook Server for Render Deployment
+MQS ChatPilot - Cloud Webhook Server with Gemini AI Integration
 Deployed to Render: https://mqs-chatpilot.onrender.com
 """
 import os, json, re, time, random
@@ -99,40 +99,61 @@ def send_fb_message(client, recipient_id, text):
     except:
         return False
 
+def call_ai(api_key, biz, history, text):
+    if not api_key: return None
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    
+    system_instruction = (
+        f"Ikaw ang friendly at masayahing chat assistant ng {biz.get('name')} na matatagpuan sa {biz.get('location')}. "
+        f"Ang Day Tour rate ay P{biz.get('price_day_amount')} (7:00 AM - 4:00 PM), good for {biz.get('capacity')}. "
+        f"Kasama rito ang: {biz.get('inclusions')}. "
+        f"Wala kayong overnight stay, Day Tour lang po. "
+        f"Para sa booking at downpayment, kailangan ng P{biz.get('downpayment')} sa GCash (Name: {biz.get('gcash_name')}, Number: {biz.get('gcash_number')}). "
+        f"Umusap ka nang natural, parang totoong tao na palakaibigan at taga-Batangas. Huwag maging paulit-ulit o robotic ang mga sagot. Mag-iba-iba ka ng phrasing sa bawat reply para hindi nakakaumay."
+    )
+    
+    contents = []
+    for h in history[-6:]:
+        role = "user" if "Customer:" in h else "model"
+        msg_text = h.split(": ", 1)[1] if ": " in h else h
+        contents.append({"role": role, "parts": [{"text": msg_text}]})
+    
+    payload = {
+        "contents": contents,
+        "system_instruction": {"parts": [{"text": system_instruction}]}
+    }
+    
+    try:
+        r = requests.post(url, json=payload, timeout=10)
+        if r.status_code == 200:
+            res_json = r.json()
+            candidates = res_json.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if parts:
+                    return parts[0].get("text", "").strip()
+    except Exception as e:
+        print(f"[AI ERROR] {e}", flush=True)
+    return None
+
 def smart_fallback_reply(text, biz):
     t = text.lower()
     if any(k in t for k in ["dec", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "petsa", "date", "araw", "available", "pwede ba", "magpabook", "book"]):
-        return f"Yes po, available po ang mag-book ng petsang iyon! Ang Day Tour rate po natin ay P{biz.get('price_day_amount','3500')} (7AM-4PM). Para ma-secure po ang schedule, kailangan lang po ng downpayment na P{biz.get('downpayment','1000')} sa GCash ({biz.get('gcash_number','')} - {biz.get('gcash_name','')}). Gusto niyo na po bang ituloy ang booking?"
+        return f"Yes po, available po mag-book sa gusto nyong date! P3,500 po ang Day Tour natin (7AM-4PM). Kailangan lang po ng P1,000 downpayment via GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}) para ma-lock po natin ang schedule ninyo."
     elif any(k in t for k in ["magkano", "price", "rate", "pila", "balsa", "tour", "fee"]):
-        return f"Hello po! Ang Day Tour rate po namin ay P{biz.get('price_day_amount','3500')} (7:00 AM - 4:00 PM). Kasama na po ang floating cottage, videoke, ihawan, life vest, at lutuan! Good for {biz.get('capacity','15-20 pax')} po siya."
+        return f"P3,500 po ang rate namin para sa Day Tour (7:00 AM - 4:00 PM). Sulit na sulit dahil kasama na dyan ang floating cottage, videoke, ihawan, life vest, at lutuan! Pwedeng-pwede sa tropa o pamilya (good for {biz.get('capacity')})."
     elif any(k in t for k in ["overnight", "gabi", "matulog"]):
-        return f"Paumanhin po, Day Tour lang po kami (7:00 AM - 4:00 PM) at walang overnight stay. Pwede niyo po kaming tawagan sa {biz.get('contact','')} para sa iba pang detalye."
+        return f"Ay sorry po, hanggang Day Tour lang po talaga kami (7AM hanggang 4PM) at wala pong overnight stay."
     elif any(k in t for k in ["saan", "location", "address", "map", "paano pumunta"]):
-        return f"Located po kami sa {biz.get('location','Calatagan, Batangas')}. Narito po ang Google Maps link namin para madali kayong makarating: {biz.get('google_maps_link','')}"
+        return f"Sa {biz.get('location')} po kami nakaposisyon. Eto po ang Google Maps link para mas madali kayong makapunta: {biz.get('google_maps_link')}"
     elif any(k in t for k in ["gcash", "payment", "downpayment", "pay", "bayad"]):
-        return f"Para po sa downpayment na P{biz.get('downpayment','1000')}, maaari niyo pong i-send sa GCash:\nName: {biz.get('gcash_name','')}\nNumber: {biz.get('gcash_number','')}\n\nI-send lang po dito ang screenshot ng resibo!"
-    elif any(k in t for k in ["salamat", "thank", "thanks", "ayos", "sige"]):
-        return "Walang anuman po! Masaya kaming makatulong. Sabihin niyo lang po kung may kailangan pa kayong malaman o kung gustong mag-book."
-    elif any(k in t for k in ["hi", "hello", "hey", "pwedeng mag tanong", "mga tanong"]):
-        return f"Hello po! Welcome sa {biz.get('name','Balsa ni Mac')} sa {biz.get('location','Calatagan')}. May gusto po ba kayong malaman tungkol sa aming Day Tour?"
+        return f"Eto po ang GCash details para sa P1,000 downpayment:\n\nName: {biz.get('gcash_name')}\nNumber: {biz.get('gcash_number')}\n\nI-send lang po dito ang screenshot ng resibo pagkatapos magbayad!"
     else:
-        responses = [
-            f"Para po sa mga booking o katanungan tungkol sa aming balsa sa {biz.get('location','Calatagan')}, maaari po kayong mag-inquire tungkol sa rate, petsa ng gusto niyo, o kung paano mag-downpayment.",
-            f"Ang Day Tour po namin ay nagkakahalagang P{biz.get('price_day_amount','3500')} mula 7AM hanggang 4PM. Anong petsa po ba ang gusto ninyong i-book?",
-            f"Tungkol saan po kaya ang nais niyo pang malaman? Pwede niyo po kaming tanungin tungkol sa rate, capacity, o sa pag-book ng napili ninyong petsa."
-        ]
-        return random.choice(responses)
-
-def call_ai(api_key, biz, history, text):
-    return None
+        return f"Hello po! Tungkol saan po kaya ang gusto ninyong malaman sa aming balsa sa {biz.get('location')}? Pwede po kayong magtanong tungkol sa rates, inclusions, o kung gusto ninyong mag-reserve ng petsa."
 
 def generate_reply(client, sender_id, text):
     if sender_id not in sessions:
-        sessions[sender_id] = {
-            "history": [], "pending_date": "", "pending_pax": "",
-            "pending_tour": "Day Tour", "pending_name": "", "pending_contact": "",
-            "pending_ref": "", "awaiting_confirm": False, "inquiry_id": ""
-        }
+        sessions[sender_id] = {"history": []}
     sess = sessions[sender_id]
     sess["history"].append(f"Customer: {text}")
     if len(sess["history"]) > 12: sess["history"] = sess["history"][-12:]
@@ -141,12 +162,14 @@ def generate_reply(client, sender_id, text):
     biz = config["business_info"]
     api_key = config.get("ai_api_key", "")
 
+    # Subukan munang gamitin si Gemini AI para sa natural na sagot
     result = call_ai(api_key, biz, sess["history"], text)
     if result:
         sess["history"].append(f"AI: {result}")
         save_sessions()
         return result
 
+    # Fallback kung sakaling magka-issue ang API connection
     fallback = smart_fallback_reply(text, biz)
     sess["history"].append(f"AI (Fallback): {fallback}")
     save_sessions()
@@ -155,7 +178,7 @@ def generate_reply(client, sender_id, text):
 app = Flask(__name__)
 
 @app.route("/")
-def home(): return jsonify({"status":"MQS ChatPilot Cloud Live","clients":len(clients)})
+def home(): return jsonify({"status":"MQS ChatPilot Cloud Live with Gemini","clients":len(clients)})
 
 @app.route("/health")
 def health(): return jsonify({"ok":True})
