@@ -138,18 +138,30 @@ def call_ai(api_key, biz, history, text):
     prompt_lines.append(f"\nLatest customer message: {text}")
     prompt = "\n".join(prompt_lines)
 
-    # Subukan direktang tawagin ang Google Gemini API gamit ang tamang recommended models
-    models_to_try = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
-    for mdl in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={api_key}"
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    # Subukan natin ang iba't ibang bersyon ng Gemini API endpoint at models para masigurong sasaluhin ng cloud
+    models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }]
+        }
         try:
-            r = requests.post(url, json=payload, timeout=10)
+            r = requests.post(url, json=payload, headers=headers, timeout=12)
             if r.status_code == 200:
-                res_json = r.json()
-                txt = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
-                if txt: return txt
+                data = r.json()
+                candidate = data.get("candidates", [])[0]
+                content = candidate.get("content", {})
+                parts = content.get("parts", [])[0]
+                answer = parts.get("text", "").strip()
+                if answer:
+                    return answer
+            else:
+                print(f"[AI ERROR] Model {model} returned status {r.status_code}: {r.text}", flush=True)
         except Exception as e:
+            print(f"[AI EXCEPTION] Model {model}: {e}", flush=True)
             continue
             
     return None
@@ -220,8 +232,6 @@ def webhook():
                     if reply: send_fb_message(client, sender, reply)
                 except Exception as e:
                     print(f"[WEBHOOK] ERROR {e}", flush=True)
-    for ev in entry.get("messaging", []): # safety fallback
-        pass
     return "EVENT_RECEIVED", 200
 
 if __name__ == "__main__":
