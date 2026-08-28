@@ -2,7 +2,7 @@
 MQS ChatPilot - Cloud Webhook Server for Render Deployment
 Deployed to Render: https://mqs-chatpilot.onrender.com
 """
-import os, json, re, time
+import os, json, re, time, random
 from datetime import datetime
 from flask import Flask, request, jsonify
 import requests
@@ -102,19 +102,27 @@ def send_fb_message(client, recipient_id, text):
 def smart_fallback_reply(text, biz):
     t = text.lower()
     if any(k in t for k in ["magkano", "price", "rate", "pila", "balsa", "tour", "fee"]):
-        return f"Hello po! Ang Day Tour rate po namin ay P{biz.get('price_day_amount','3500')} (7:00 AM - 4:00 PM). Kasama na po ang floating cottage, videoke, ihawan, life vest, at lutuan! Good for {biz.get('capacity','15-20 pax')} po siya. Gusto niyo po ba magpa-book?"
+        return f"Hello po! Ang Day Tour rate po namin ay P{biz.get('price_day_amount','3500')} (7:00 AM - 4:00 PM). Kasama na po ang floating cottage, videoke, ihawan, life vest, at lutuan! Good for {biz.get('capacity','15-20 pax')} po siya."
     elif any(k in t for k in ["overnight", "gabi", "matulog"]):
-        return f"Paumanhin po, Day Tour lang po kami (7:00 AM - 4:00 PM) at walang overnight. Pwede niyo po kaming tawagan sa {biz.get('contact','')} para sa iba pang detalye."
+        return f"Paumanhin po, Day Tour lang po kami (7:00 AM - 4:00 PM) at walang overnight stay. Pwede niyo po kaming tawagan sa {biz.get('contact','')} para sa iba pang detalye."
     elif any(k in t for k in ["saan", "location", "address", "map", "paano pumunta"]):
-        return f"Located po kami sa {biz.get('location','Calatagan, Batangas')}. Narito po ang Google Maps link namin: {biz.get('google_maps_link','')}"
+        return f"Located po kami sa {biz.get('location','Calatagan, Batangas')}. Narito po ang Google Maps link namin para madali kayong makarating: {biz.get('google_maps_link','')}"
     elif any(k in t for k in ["gcash", "payment", "downpayment", "pay", "bayad"]):
-        return f"Para po sa downpayment na P{biz.get('downpayment','1000')}, maaari niyo pong i-send sa GCash:\nName: {biz.get('gcash_name','')}\nNumber: {biz.get('gcash_number','')}\n\nI-send lang po dito ang screenshot ng resibo pagkatapos!"
+        return f"Para po sa downpayment na P{biz.get('downpayment','1000')}, maaari niyo pong i-send sa GCash:\nName: {biz.get('gcash_name','')}\nNumber: {biz.get('gcash_number','')}\n\nI-send lang po dito ang screenshot ng resibo!"
+    elif any(k in t for k in ["salamat", "thank", "thanks", "ayos", "sige"]):
+        return "Walang anuman po! Masaya kaming makatulong. Sabihin niyo lang po kung may kailangan pa kayong malaman o kung gustong mag-book."
+    elif any(k in t for k in ["hi", "hello", "hey", "pwedeng mag tanong", "mga tanong"]):
+        return f"Hello po! Welcome sa {biz.get('name','Balsa ni Mac')} sa {biz.get('location','Calatagan')}. May gusto po ba kayong malaman tungkol sa aming Day Tour?"
     else:
-        return f"Hello po! Welcome sa {biz.get('name','Balsa ni Mac')} sa {biz.get('location','Calatagan')}. Day tour po tayo (7AM-4PM) sa halagang P{biz.get('price_day_amount','3500')} ({biz.get('capacity','15-20 pax')}). May gusto po ba kayong itanong o gustong i-book na date?"
+        # Pangkalahatang sagot na hindi paulit-ulit ang buong intro
+        responses = [
+            f"Nakuha ko po ang inyong mensahhe! Para sa mga booking o katanungan tungkol sa aming balsa sa {biz.get('location','Calatagan')}, maaari po kayong mag-inquire tungkol sa rate, location, o kung paano mag-downpayment.",
+            f"Nasabi niyo po iyon! Ang Day Tour po namin ay nagkakahalagang P{biz.get('price_day_amount','3500')} mula 7AM hanggang 4PM. Gusto niyo po bang malaman ang mga kasama na inclusions?",
+            f"Tungkol saan po kaya ang nais niyo pang malaman? Pwede niyo po kaming tanungin tungkol sa rate, capacity, o sa pag-book ng petsa."
+        ]
+        return random.choice(responses)
 
 def call_ai(api_key, biz, history, text):
-    # Dahil nasa Render ang server at ang OmniRoute ay nasa local machine mo, 
-    # ginagamit na muna natin ang smart fallback para hindi mag-error ang mga nagte-text sa Facebook.
     return None
 
 def generate_reply(client, sender_id, text):
