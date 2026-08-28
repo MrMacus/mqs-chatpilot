@@ -235,7 +235,8 @@ def call_gemini(api_key, biz, history, text, extra_context=""):
     try:
         from google import genai
         gen = genai.Client(api_key=api_key)
-        for mdl in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-flash-latest", "gemini-3.6-flash"]:
+        # Updated stable models list
+        for mdl in ["gemini-2.0-flash", "gemini-flash", "gemini-pro"]:
             try:
                 resp = gen.models.generate_content(model=mdl, contents=prompt)
                 txt = (resp.text or "").strip()
@@ -427,7 +428,6 @@ def webhook():
                         print(f"[WEBHOOK] Duplicate message ignored: {msg_id}", flush=True)
                         continue
                     seen_message_ids[msg_id] = time.time()
-                    # Linisin ang lumang memory lampas ng 60 seconds
                     now = time.time()
                     for mid in list(seen_message_ids.keys()):
                         if now - seen_message_ids[mid] > 60:
