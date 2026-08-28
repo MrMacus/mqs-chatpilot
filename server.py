@@ -136,21 +136,34 @@ def call_ai(api_key, biz, history, text):
         prompt_lines.append(f"\nCONVERSATION HISTORY:")
         for h in history[-8:]: prompt_lines.append(f"  {h}")
     prompt_lines.append(f"\nLatest customer message: {text}")
-    prompt = "\n".join(prompt_lines)
 
-    # Kung ang API key ay nagsisimula sa "sk-", ibig sabihin ito ay OmniRoute/OpenAI format.
-    if api_key.startswith("sk-"):
-        # Subukan natin ang iba't ibang cloud model sa OmniRoute
-        models = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gpt-4o-mini"]
-        for model in models:
-            url = "https://openrouter.ai/api/v1/chat/completions" # O kaya kung may sarili kang cloud proxy URL, pwede ring ilagay
-            # Kung local omniroute ito noon, pero nasa cloud na tayo, kailangan natin ng valid AI key o mag-fallback sa smart rules
-            # Pero dahil wala tayong cloud proxy ng omniroute, gagamit tayo ng OpenAI-compatible o i-redirect sa tamang endpoint kung meron.
-            pass
+    messages = [{"role": "system", "content": "\n".join(prompt_lines)}, {"role": "user", "content": text}]
 
-    # Pansamantalang solusyon kung sakaling walang tamang Google API key: 
-    # Gagamitin muna natin ang smart fallback na may halong variation para sumagot nang wasto sa customer batay sa tanong nila, 
-    # o kaya maaari kang maglagay ng tunay na Google Gemini API key (AIza...) sa Render environment variable.
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    models = ["google/gemini-flash-1.5", "google/gemini-2.0-flash-exp:free", "deepseek/deepseek-chat"]
+    
+    for model in models:
+        payload = {
+            "model": model,
+            "messages": messages
+        }
+        try:
+            r = requests.post(url, json=payload, headers=headers, timeout=12)
+            if r.status_code == 200:
+                data = r.json()
+                answer = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                if answer:
+                    return answer
+            else:
+                print(f"[OMNIROUTE ERROR] Model {model} status {r.status_code}: {r.text}", flush=True)
+        except Exception as e:
+            print(f"[OMNIROUTE EXCEPTION] Model {model}: {e}", flush=True)
+            continue
+            
     return None
 
 def generate_reply(client, sender_id, text):
