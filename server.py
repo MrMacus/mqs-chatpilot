@@ -1,5 +1,5 @@
 """
-MQS ChatPilot - Cloud Webhook Server with Gemini AI Integration
+MQS ChatPilot - Cloud Webhook Server with Gemini AI API Rotation & Backoff Delay
 Deployed to Render: https://mqs-chatpilot.onrender.com
 """
 import os, json, re, time, random
@@ -28,8 +28,24 @@ def load_clients():
         except: pass
     return []
 
+# Multi-API Key Setup (Supports GEMINI_KEY, GEMINI_KEY_1, GEMINI_KEY_2, GEMINI_KEY_3, etc.)
+def load_api_keys():
+    keys = []
+    env_single = os.environ.get("GEMINI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("AI_API_KEY") or ""
+    if env_single:
+        for k in env_single.split(","):
+            if k.strip(): keys.append(k.strip())
+    
+    for i in range(1, 10):
+        k = os.environ.get(f"GEMINI_KEY_{i}") or os.environ.get(f"AI_API_KEY_{i}")
+        if k and k.strip() and k.strip() not in keys:
+            keys.append(k.strip())
+            
+    return keys
+
+api_keys_pool = load_api_keys()
+
 _env_page = os.environ.get("PAGE_TOKEN") or os.environ.get("PAGE_ACCESS_TOKEN")
-_env_key = os.environ.get("GEMINI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("AI_API_KEY") or ""
 _env_verify = os.environ.get("VERIFY_TOKEN")
 _env_pid = os.environ.get("PAGE_ID")
 
@@ -41,7 +57,7 @@ if not clients and _env_page:
         "config": {
             "page_access_token": _env_page,
             "verify_token": _env_verify or "mqs_verify_2026",
-            "ai_api_key": _env_key,
+            "ai_api_key": api_keys_pool[0] if api_keys_pool else "",
             "port": 5000,
             "business_info": {
                 "name": "Balsa ni Mac", "location": "Calatagan, Batangas",
@@ -67,7 +83,8 @@ elif _env_page and clients:
     if _env_pid: clients[0]["page_id"] = _env_pid
 
 for c in clients:
-    c["config"]["ai_api_key"] = _env_key
+    if api_keys_pool:
+        c["config"]["ai_api_key"] = api_keys_pool[0]
 
 def get_client_by_page_id(pid):
     if not pid: return None
@@ -112,9 +129,9 @@ def send_fb_message(client, recipient_id, text):
     except:
         return False
 
-def call_ai(api_key, biz, history, text, user_name):
-    if not api_key: return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}"
+def call_ai_with_rotation(biz, history, text, user_name):
+    keys = api_keys_pool if api_keys_pool else [os.environ.get("GEMINI_KEY", "")]
+    if not keys or not keys[0]: return None
     
     system_instruction = (
         f"You are the friendly and cheerful chat assistant of {biz.get('name')} located in {biz.get('location')}. "
@@ -143,22 +160,29 @@ def call_ai(api_key, biz, history, text, user_name):
         "system_instruction": {"parts": [{"text": system_instruction}]}
     }
     
-    try:
-        r = requests.post(url, json=payload, timeout=10)
-        if r.status_code == 200:
-            res_json = r.json()
-            candidates = res_json.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text", "").strip()
-    except Exception as e:
-        pass
+    for idx, key in enumerate(keys):
+        if not key: continue
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={key}"
+        try:
+            r = requests.post(url, json=payload, timeout=8)
+            if r.status_code == 200:
+                res_json = r.json()
+                candidates = res_json.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "").strip()
+            else:
+                print(f"[API ROTATION] Key index {idx} failed with status {r.status_code}. Backing off...", flush=True)
+                time.sleep(1.0)
+        except Exception as e:
+            print(f"[API ROTATION] Exception with key index {idx}: {e}. Backing off...", flush=True)
+            time.sleep(1.0)
+            
     return None
 
 def smart_fallback_reply(text, biz, user_name):
     t = text.lower()
-    
     if any(k in t for k in ["number", "owner", "may-ari", "tawagan", "call", "contact", "cp", "telepono"]):
         return f"Maaari ninyong tawagan o i-text nang direkta ang ating owner na si {biz.get('owner_name', 'Mac David Bernal')} sa numerong {biz.get('contact')} para sa iba pang katanungan."
     elif any(k in t for k in ["aso", "dog", "pet", "alaga", "pusa", "cat", "bata", "kids", "child"]):
@@ -201,9 +225,8 @@ def generate_reply(client, sender_id, text):
 
     config = client["config"]
     biz = config["business_info"]
-    api_key = config.get("ai_api_key", "")
 
-    result = call_ai(api_key, biz, sess["history"], text, user_name)
+    result = call_ai_with_rotation(biz, sess["history"], text, user_name)
     if result:
         sess["history"].append(f"AI: {result}")
         save_sessions()
@@ -217,7 +240,7 @@ def generate_reply(client, sender_id, text):
 app = Flask(__name__)
 
 @app.route("/")
-def home(): return jsonify({"status":"MQS ChatPilot Cloud Live with Gemini","clients":len(clients)})
+def home(): return jsonify({"status":"MQS ChatPilot Cloud Live with Backoff & Rotation","keys_loaded":len(api_keys_pool)})
 
 @app.route("/health")
 def health(): return jsonify({"ok":True})
