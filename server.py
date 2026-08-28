@@ -113,58 +113,8 @@ def smart_fallback_reply(text, biz):
         return f"Hello po! Welcome sa {biz.get('name','Balsa ni Mac')} sa {biz.get('location','Calatagan')}. Day tour po tayo (7AM-4PM) sa halagang P{biz.get('price_day_amount','3500')} ({biz.get('capacity','15-20 pax')}). May gusto po ba kayong itanong o gustong i-book na date?"
 
 def call_ai(api_key, biz, history, text):
-    prompt_lines = [
-        f"You are a friendly, warm, human-like booking assistant for {biz.get('name','Balsa')} in {biz.get('location','Calatagan')}.",
-        f"Auto-detect the customer's language and reply in the SAME language they used. Keep it natural and conversational.",
-        f"BUSINESS INFO:",
-        f"- Business: {biz.get('name','Balsa')}",
-        f"- Location: {biz.get('location','Calatagan, Batangas')}",
-        f"- Google Maps: {biz.get('google_maps_link','')}",
-        f"- Day Tour ONLY 7am-4pm, NO overnight. Price: P{biz.get('price_day_amount','3500')}",
-        f"- Capacity: {biz.get('capacity','15-20 pax')}",
-        f"- Inclusions: {biz.get('inclusions','Floating cottage, videoke, ihawan, life vest, lutuan')}",
-        f"- Contact: {biz.get('contact','09123456789')}",
-        f"- GCash: {biz.get('gcash_number','')} ({biz.get('gcash_name','')})",
-        f"- Downpayment: P{biz.get('downpayment','1000')}",
-        f"RULES:",
-        f"- Be conversational, warm, use po/opo in Tagalog.",
-        f"- Do NOT invent prices. Use exact amounts above.",
-        f"- If asked overnight, politely say NO.",
-        f"- Keep replies SHORT (2-4 sentences max)."
-    ]
-    if history:
-        prompt_lines.append(f"\nCONVERSATION HISTORY:")
-        for h in history[-8:]: prompt_lines.append(f"  {h}")
-    prompt_lines.append(f"\nLatest customer message: {text}")
-
-    messages = [{"role": "system", "content": "\n".join(prompt_lines)}, {"role": "user", "content": text}]
-
-    # Pwedeng palitan ang URL na ito ng tamang local endpoint o proxy URL kung saan naka-host ang OmniRoute mo
-    url = "http://localhost:11434/v1/chat/completions" # O kaya ay ang base URL ng OmniRoute proxy mo
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    models = ["gemini-1.5-flash", "gemini-2.0-flash", "default"]
-    
-    for model in models:
-        payload = {
-            "model": model,
-            "messages": messages
-        }
-        try:
-            r = requests.post(url, json=payload, headers=headers, timeout=12)
-            if r.status_code == 200:
-                data = r.json()
-                answer = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-                if answer:
-                    return answer
-            else:
-                print(f"[OMNIROUTE INSTANCE ERROR] Status {r.status_code}: {r.text}", flush=True)
-        except Exception as e:
-            print(f"[OMNIROUTE EXCEPTION]: {e}", flush=True)
-            continue
-            
+    # Dahil nasa Render ang server at ang OmniRoute ay nasa local machine mo, 
+    # ginagamit na muna natin ang smart fallback para hindi mag-error ang mga nagte-text sa Facebook.
     return None
 
 def generate_reply(client, sender_id, text):
