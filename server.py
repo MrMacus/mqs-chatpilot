@@ -152,10 +152,8 @@ def call_ai(api_key, biz, history, text, user_name):
                 parts = candidates[0].get("content", {}).get("parts", [])
                 if parts:
                     return parts[0].get("text", "").strip()
-        else:
-            print(f"[AI ERROR STATUS {r.status_code}] {r.text}", flush=True)
     except Exception as e:
-        print(f"[AI ERROR DETAILED] {e}", flush=True)
+        pass
     return None
 
 def smart_fallback_reply(text, biz, user_name):
@@ -164,15 +162,15 @@ def smart_fallback_reply(text, biz, user_name):
     if any(k in t for k in ["number", "owner", "may-ari", "tawagan", "call", "contact", "cp", "telepono"]):
         return f"Maaari ninyong tawagan o i-text nang direkta ang ating owner na si {biz.get('owner_name', 'Mac David Bernal')} sa numerong {biz.get('contact')} para sa iba pang katanungan."
     elif any(k in t for k in ["aso", "dog", "pet", "alaga", "pusa", "cat", "bata", "kids", "child"]):
-        return f"Paumanhin, ngunit hindi ko po alam ang detalyeng iyan dahil kulang ang aking kaalaman bilang AI. Maaari ninyong tawagan o i-text nang direkta ang ating owner na si {biz.get('owner_name', 'Mac David Bernal')} sa numerong {biz.get('contact')} para masagot ang inyong tanong."
+        return f"Pasensya na po, Kaibigan, hindi ko po eksaktong alam ang patakaran ukol sa pagpapasok ng aso o pets dahil kulang po ang aking kaalaman bilang AI. Maaari niyo pong direktang tawagan o i-message ang owner na si {biz.get('owner_name', 'Mac David Bernal')} sa {biz.get('contact')} para ma-confirm kung pwede po ang inyong pet."
     elif any(k in t for k in ["parking", "parada", "kotse", "car", "sasakyan"]):
         return f"Yes po, mayroon namang pwedeng maparadahan para sa mga sasakyan malapit sa aming jump-off point o port."
     elif any(k in t for k in ["ilan", "kasya", "capacity", "pax", "tao", "fit", "how many"]):
-        return f"Good for {biz.get('capacity')} po ang balsa natin."
+        return f"Ang atin pong balsa ay kasya ang hanggang {biz.get('capacity')} katao, Kaibigan!"
     elif any(k in t for k in ["entrance", "fee", "bayad sa pinto", "entrancefee", "entrance fee"]):
         return f"Wala po tayong hiwalay na entrance fee sa balsa! Ang meron po ay ang P3,500 Day Tour rate natin (7AM-4PM, good for {biz.get('capacity')}) na kasama na ang floating cottage, videoke, ihawan, life vest, at lutuan. May hiwalay lang po na ecological fee (mga P30) sa port o munisipyo."
     elif any(k in t for k in ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]):
-        return f"Hello po, {user_name}! Welcome sa {biz.get('name')} sa {biz.get('location')}. Ano po ang magagawa ko para sa inyo ngayon?"
+        return f"Hello po, {user_name}! Welcome sa {biz.get('name')} dito sa {biz.get('location')}. Ako po ang inyong chat assistant. Paano ko po kayo matutulungan ngayon?"
     elif any(k in t for k in ["pagkain", "bili", "tindahan", "market", "palengke", "ulam", "kain", "food", "eat", "cook"]):
         return f"May mga malapit na tindahan o palengke naman po sa bayan ng Calatagan kung saan kayo pwedeng mamili ng pagkain at inumin bago sumakay sa balsa."
     elif any(k in t for k in ["dec", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "petsa", "date", "araw", "available", "pwede ba", "when"]):
