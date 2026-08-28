@@ -31,7 +31,23 @@ def load_clients():
         except: pass
     return []
 
+# override from env vars if set (for Render deployment without files)
+import os as _os
+_env_page = _os.environ.get("PAGE_TOKEN") or _os.environ.get("PAGE_ACCESS_TOKEN")
+_env_gemini = _os.environ.get("GEMINI_KEY") or _os.environ.get("GEMINI_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
+_env_verify = _os.environ.get("VERIFY_TOKEN")
 clients = load_clients()
+if _env_page and clients:
+    clients[0]["config"]["page_access_token"] = _env_page
+    # also set page_id if provided
+    _env_pid = _os.environ.get("PAGE_ID")
+    if _env_pid: clients[0]["page_id"] = _env_pid
+if _env_gemini and clients:
+    for c in clients:
+        c["config"]["ai_api_key"] = _env_gemini
+if _env_verify and clients:
+    for c in clients:
+        c["config"]["verify_token"] = _env_verify
 # build token->client map and page_id map
 def get_client_by_page_id(pid):
     if not pid: return None
