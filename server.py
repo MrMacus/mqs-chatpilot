@@ -289,7 +289,13 @@ def generate_reply(client, sender_id, text):
     api_key=cfg.get("ai_api_key","")
     biz=cfg["business_info"]
     if provider=="local" or not api_key:
-        # simple template
+        # simple template - avoid loop, handle greetings
+        if any(k in low for k in ["hello","hi ","hey","good morning","good afternoon"]):
+            return f"Hello po! 😊 Welcome sa {biz.get('name','Balsa ni Mac')} — Day Tour P{biz.get('price_day_amount','3500')} 7am-4pm (no overnight). How can I help? Ask me inclusions, location, or tell me date & pax for booking!"
+        if any(k in low for k in ["wait lang","wait po","tropa","tanong","hold on","sandali"]):
+            return f"Sige po, take your time! 😊 Nandito lang ako pag ready na tropa nyo. Just tell me date (like Nov 3) and pax when you're ready — Day Tour P{biz.get('price_day_amount','3500')}."
+        if any(k in low for k in ["bakit","why","ganun","loop"]):
+            return f"Pasensya na po, nag-reset lang — pero naaalala ko pa rin kayo! 😊 Ano po ulit date nyo? (You mentioned Nov 3 earlier)"
         if any(k in low for k in ["inclusion","kasama"]):
             return f"Our inclusions, Ma'am/Sir, are {biz.get('inclusions','')} — all included in P{biz.get('price_day_amount','3500')} Day Tour 7am-4pm. Photos: {biz.get('balsa_photos_url','')}"
         if any(k in low for k in ["saan","location","maps"]):
@@ -300,7 +306,7 @@ def generate_reply(client, sender_id, text):
             return f"Noted {sess['pending_date']} — thanks for mentioning Nov 3 earlier! How many pax will you be? (max {biz.get('capacity','')})"
         if sess.get("pending_date") and sess.get("pending_pax"):
             return f"Got it {sess['pending_date']} - {sess['pending_pax']} pax. What is your name and contact so I can hold it? I remember you mentioned {sess['pending_date']} earlier."
-        return f"Hello! Day Tour P{biz.get('price_day_amount','3500')} 7am-4pm, capacity {biz.get('capacity','')}. I remember you were asking about inclusions and location — happy to help! Which date and pax are you considering (you mentioned Nov 3)?"
+        return f"Hi po! I am here to help 😊 You can ask inclusions, location, or tell me your date & pax for booking. Day Tour P{biz.get('price_day_amount','3500')} 7am-4pm."
     # gemini
     try:
         from google import genai
