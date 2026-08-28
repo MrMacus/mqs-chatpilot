@@ -235,7 +235,7 @@ def call_gemini(api_key, biz, history, text, extra_context=""):
     try:
         from google import genai
         gen = genai.Client(api_key=api_key)
-        for mdl in ["gemini-2.0-flash", "gemini-flash", "gemini-pro"]:
+        for mdl in ["gemini-1.5-flash", "gemini-1.5-pro"]:
             try:
                 resp = gen.models.generate_content(model=mdl, contents=prompt)
                 txt = (resp.text or "").strip()
