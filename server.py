@@ -108,8 +108,10 @@ def call_ai(api_key, biz, history, text):
         f"Ang Day Tour rate ay P{biz.get('price_day_amount')} (7:00 AM - 4:00 PM), good for {biz.get('capacity')}. "
         f"Kasama rito ang: {biz.get('inclusions')}. "
         f"Wala kayong overnight stay, Day Tour lang po. "
+        f"Para sa pagkain, pwedeng mamili o magdala ng sariling baon galing sa bayan o malapit na tindahan sa Calatagan bago sumakay. "
         f"Para sa booking at downpayment, kailangan ng P{biz.get('downpayment')} sa GCash (Name: {biz.get('gcash_name')}, Number: {biz.get('gcash_number')}). "
-        f"Umusap ka nang natural, parang totoong tao na palakaibigan at taga-Batangas. Huwag maging paulit-ulit o robotic ang mga sagot. Mag-iba-iba ka ng phrasing sa bawat reply para hindi nakakaumay."
+        f"Kapag hindi mo sigurado o hindi mo alam ang sagot sa tanong ng customer, sabihin mo nang magalang na kontakin o tawagan ang owner sa numerong {biz.get('contact')} para sa iba pang katanungan. "
+        f"Umusap ka nang natural, direktang sagutin ang tanong ng customer, at huwag magpumilit mag-book kung nagtatanong lang sila tungkol sa iba pang detalye."
     )
     
     contents = []
@@ -138,7 +140,9 @@ def call_ai(api_key, biz, history, text):
 
 def smart_fallback_reply(text, biz):
     t = text.lower()
-    if any(k in t for k in ["dec", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "petsa", "date", "araw", "available", "pwede ba", "magpabook", "book"]):
+    if any(k in t for k in ["pagkain", "bili", "tindahan", "market", "palengke", "ulam", "kain"]):
+        return f"May mga malapit na tindahan o palengke naman po sa bayan ng Calatagan kung saan kayo pwedeng mamili ng pagkain at inumin bago sumakay sa balsa!"
+    elif any(k in t for k in ["dec", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "petsa", "date", "araw", "available", "pwede ba", "magpabook", "book"]):
         return f"Yes po, available po mag-book sa gusto nyong date! P3,500 po ang Day Tour natin (7AM-4PM). Kailangan lang po ng P1,000 downpayment via GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}) para ma-lock po natin ang schedule ninyo."
     elif any(k in t for k in ["magkano", "price", "rate", "pila", "balsa", "tour", "fee"]):
         return f"P3,500 po ang rate namin para sa Day Tour (7:00 AM - 4:00 PM). Sulit na sulit dahil kasama na dyan ang floating cottage, videoke, ihawan, life vest, at lutuan! Pwedeng-pwede sa tropa o pamilya (good for {biz.get('capacity')})."
@@ -149,7 +153,7 @@ def smart_fallback_reply(text, biz):
     elif any(k in t for k in ["gcash", "payment", "downpayment", "pay", "bayad"]):
         return f"Eto po ang GCash details para sa P1,000 downpayment:\n\nName: {biz.get('gcash_name')}\nNumber: {biz.get('gcash_number')}\n\nI-send lang po dito ang screenshot ng resibo pagkatapos magbayad!"
     else:
-        return f"Hello po! Tungkol saan po kaya ang gusto ninyong malaman sa aming balsa sa {biz.get('location')}? Pwede po kayong magtanong tungkol sa rates, inclusions, o kung gusto ninyong mag-reserve ng petsa."
+        return f"Hindi ko po sigurado ang tungkol dyan, pwede ninyong tawagan o i-text ang aming owner sa numerong {biz.get('contact')} para sa iba pang katanungan."
 
 def generate_reply(client, sender_id, text):
     if sender_id not in sessions:
@@ -162,14 +166,12 @@ def generate_reply(client, sender_id, text):
     biz = config["business_info"]
     api_key = config.get("ai_api_key", "")
 
-    # Subukan munang gamitin si Gemini AI para sa natural na sagot
     result = call_ai(api_key, biz, sess["history"], text)
     if result:
         sess["history"].append(f"AI: {result}")
         save_sessions()
         return result
 
-    # Fallback kung sakaling magka-issue ang API connection
     fallback = smart_fallback_reply(text, biz)
     sess["history"].append(f"AI (Fallback): {fallback}")
     save_sessions()
