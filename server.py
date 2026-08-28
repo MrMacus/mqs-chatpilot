@@ -101,7 +101,9 @@ def send_fb_message(client, recipient_id, text):
 
 def smart_fallback_reply(text, biz):
     t = text.lower()
-    if any(k in t for k in ["magkano", "price", "rate", "pila", "balsa", "tour", "fee"]):
+    if any(k in t for k in ["dec", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "petsa", "date", "araw", "available", "pwede ba", "magpabook", "book"]):
+        return f"Yes po, available po ang mag-book ng petsang iyon! Ang Day Tour rate po natin ay P{biz.get('price_day_amount','3500')} (7AM-4PM). Para ma-secure po ang schedule, kailangan lang po ng downpayment na P{biz.get('downpayment','1000')} sa GCash ({biz.get('gcash_number','')} - {biz.get('gcash_name','')}). Gusto niyo na po bang ituloy ang booking?"
+    elif any(k in t for k in ["magkano", "price", "rate", "pila", "balsa", "tour", "fee"]):
         return f"Hello po! Ang Day Tour rate po namin ay P{biz.get('price_day_amount','3500')} (7:00 AM - 4:00 PM). Kasama na po ang floating cottage, videoke, ihawan, life vest, at lutuan! Good for {biz.get('capacity','15-20 pax')} po siya."
     elif any(k in t for k in ["overnight", "gabi", "matulog"]):
         return f"Paumanhin po, Day Tour lang po kami (7:00 AM - 4:00 PM) at walang overnight stay. Pwede niyo po kaming tawagan sa {biz.get('contact','')} para sa iba pang detalye."
@@ -114,11 +116,10 @@ def smart_fallback_reply(text, biz):
     elif any(k in t for k in ["hi", "hello", "hey", "pwedeng mag tanong", "mga tanong"]):
         return f"Hello po! Welcome sa {biz.get('name','Balsa ni Mac')} sa {biz.get('location','Calatagan')}. May gusto po ba kayong malaman tungkol sa aming Day Tour?"
     else:
-        # Pangkalahatang sagot na hindi paulit-ulit ang buong intro
         responses = [
-            f"Nakuha ko po ang inyong mensahhe! Para sa mga booking o katanungan tungkol sa aming balsa sa {biz.get('location','Calatagan')}, maaari po kayong mag-inquire tungkol sa rate, location, o kung paano mag-downpayment.",
-            f"Nasabi niyo po iyon! Ang Day Tour po namin ay nagkakahalagang P{biz.get('price_day_amount','3500')} mula 7AM hanggang 4PM. Gusto niyo po bang malaman ang mga kasama na inclusions?",
-            f"Tungkol saan po kaya ang nais niyo pang malaman? Pwede niyo po kaming tanungin tungkol sa rate, capacity, o sa pag-book ng petsa."
+            f"Para po sa mga booking o katanungan tungkol sa aming balsa sa {biz.get('location','Calatagan')}, maaari po kayong mag-inquire tungkol sa rate, petsa ng gusto niyo, o kung paano mag-downpayment.",
+            f"Ang Day Tour po namin ay nagkakahalagang P{biz.get('price_day_amount','3500')} mula 7AM hanggang 4PM. Anong petsa po ba ang gusto ninyong i-book?",
+            f"Tungkol saan po kaya ang nais niyo pang malaman? Pwede niyo po kaming tanungin tungkol sa rate, capacity, o sa pag-book ng napili ninyong petsa."
         ]
         return random.choice(responses)
 
