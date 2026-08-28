@@ -4,7 +4,7 @@ Deployed to Render: https://mqs-chatpilot.onrender.com
 """
 import os, json, re, time, random
 from datetime import datetime
-from flask import Flask, request, jsonify
+from Flask import Flask, request, jsonify
 import requests
 
 def resource_path(p): return os.path.join(os.path.dirname(__file__), p)
@@ -28,7 +28,7 @@ def load_clients():
         except: pass
     return []
 
-# Multi-API Key Setup (Supports GEMINI_KEY, GEMINI_KEY_1, GEMINI_KEY_2, GEMINI_KEY_3, etc.)
+# Multi-API Key Setup (Supports GEMINI_KEY, GEMINI_KEY_1 through GEMINI_KEY_9, etc.)
 def load_api_keys():
     keys = []
     env_single = os.environ.get("GEMINI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("AI_API_KEY") or ""
@@ -109,15 +109,20 @@ load_sessions()
 
 def get_fb_user_name(client, sender_id):
     token = client["config"].get("page_access_token", "")
-    if not token: return "Kaibigan"
-    url = f"https://graph.facebook.com/v19.0/{sender_id}?fields=first_name&access_token={token}"
+    if not token: return "Sir/Ma'am"
+    url = f"https://graph.facebook.com/v19.0/{sender_id}?fields=first_name,gender&access_token={token}"
     try:
         r = requests.get(url, timeout=5)
         if r.status_code == 200:
-            return r.json().get("first_name", "Kaibigan")
+            data = r.json()
+            fname = data.get("first_name", "Sir/Ma'am")
+            gender = data.get("gender", "")
+            # Tukuyin kung Sir o Ma'am base sa gender ng FB kung available, default sa Sir kung hindi tukoy
+            title = "Ma'am" if gender == "female" else "Sir"
+            return f"{title} {fname}"
     except:
         pass
-    return "Kaibigan"
+    return "Sir/Ma'am"
 
 def send_fb_message(client, recipient_id, text):
     token = client["config"].get("page_access_token","")
@@ -134,19 +139,19 @@ def call_ai_with_rotation(biz, history, text, user_name):
     if not keys or not keys[0]: return None
     
     system_instruction = (
-        f"You are the friendly and cheerful chat assistant of {biz.get('name')} located in {biz.get('location')}. "
-        f"The user's name is {user_name}. "
+        f"You are the professional, polite, and cheerful chat assistant of {biz.get('name')} located in {biz.get('location')}. "
+        f"The user's addressing title and name is {user_name} (e.g., Sir Mac or Ma'am Anna). Always address them formally using their respectful title and name.\n"
         f"Rules:\n"
-        f"1. **Language Matching:** Match the language used by the customer. If they speak Tagalog/Taglish, reply in Tagalog/Taglish. If they speak English, reply in fluent English.\n"
-        f"2. **Greetings:** If it's the start of the conversation or they say hi/hello, greet them properly using their name ({user_name}) and ask how you can help.\n"
+        f"1. **Language Matching:** Match the language used by the customer (Tagalog/Taglish/English).\n"
+        f"2. **Professional Greetings:** Always address the customer properly using their title and name ({user_name}) when greeting.\n"
         f"3. **Direct & Specific Answers (STRICT):** Sagutin LANG ang eksaktong tinatanong ng customer. HUWAG magsasama ng presyo, oras, o inclusions kung hindi naman tinatanong.\n"
         f"4. **No Entrance Fee:** Walang hiwalay na entrance fee sa balsa. Ang meron ay ang package rate na P{biz.get('price_day_amount')} para sa Day Tour (7:00 AM - 4:00 PM) na kasama na ang {biz.get('inclusions')}. May hiwalay lang na ecological fee (mga P30) sa port/munisipyo.\n"
-        f"5. **Unknown / Out of Scope Inquiries (STRICT):** Kung hindi mo alam ang sagot o wala sa iyong kaalaman bilang AI (tulad ng mga espesyal na request, aso/pets, o personal na patakaran), sabihin nang direkta na hindi mo alam dahil kulang ang iyong kaalaman bilang AI, at ibigay agad ang pangalan ng owner na si {biz.get('owner_name', 'Mac David Bernal')} kasama ang kanyang contact number ({biz.get('contact')}) para matawagan nila.\n"
-        f"6. **No Premature Downpayment:** DO NOT mention downpayment or GCash when they are asking about capacity, fees, rates, dates, food, parking, pets, or owner contact details. Answer their specific questions directly first.\n"
+        f"5. **Unknown / Out of Scope Inquiries (STRICT):** Kung hindi mo alam ang sagot o wala sa iyong kaalaman bilang AI (tulad ng mga espesyal na request, aso/pets, o personal na patakaran), sabihin nang magalang na hindi mo alam, at ibigay agad ang pangalan ng owner na si {biz.get('owner_name', 'Mac David Bernal')} kasama ang kanyang contact number ({biz.get('contact')}).\n"
+        f"6. **No Premature Downpayment:** DO NOT mention downpayment or GCash when they are asking about capacity, fees, rates, dates, food, parking, pets, or owner contact details.\n"
         f"7. **Booking Confirmation Only:** Only mention the P{biz.get('downpayment')} downpayment and GCash details ({biz.get('gcash_number')} - {biz.get('gcash_name')}) at the very end when they explicitly confirm they want to book.\n"
         f"8. **Day Tour Only:** Day Tour only (7:00 AM - 4:00 PM). No overnight stay.\n"
-        f"9. **Location & Parking Inquiries:** Kapag tinanong ang location, ibigay ang {biz.get('location')} at Google Maps link: {biz.get('google_maps_link')}. Kapag tinanong ang tungkol sa parking, sabihing mayroon namang pwedeng maparadahan malapit sa port/babaan.\n"
-        f"10. **No Repetitive Greetings:** DO NOT include repetitive 'Hello po!' or fresh greetings in the middle of an ongoing conversation.\n"
+        f"9. **Location & Parking Inquiries:** Kapag tinanong ang location, ibigay ang {biz.get('location')} at Google Maps link: {biz.get('google_maps_link')}. Sa parking, sabihing mayroon namang pwedeng maparadahan malapit sa port.\n"
+        f"10. **No Repetitive Greetings:** DO NOT include repetitive greetings in the middle of an ongoing conversation.\n"
     )
     
     contents = []
@@ -173,7 +178,7 @@ def call_ai_with_rotation(biz, history, text, user_name):
                     if parts:
                         return parts[0].get("text", "").strip()
             else:
-                print(f"[API ROTATION] Key index {idx} failed with status {r.status_code}. Backing off...", flush=True)
+                print(f"[API ROTATION] Key index {idx} failed. Backing off...", flush=True)
                 time.sleep(1.0)
         except Exception as e:
             print(f"[API ROTATION] Exception with key index {idx}: {e}. Backing off...", flush=True)
@@ -184,33 +189,33 @@ def call_ai_with_rotation(biz, history, text, user_name):
 def smart_fallback_reply(text, biz, user_name):
     t = text.lower()
     if any(k in t for k in ["number", "owner", "may-ari", "tawagan", "call", "contact", "cp", "telepono"]):
-        return f"Maaari ninyong tawagan o i-text nang direkta ang ating owner na si {biz.get('owner_name', 'Mac David Bernal')} sa numerong {biz.get('contact')} para sa iba pang katanungan."
+        return f"Maaari ninyong tawagan o i-text nang direkta, {user_name}, ang ating owner na si {biz.get('owner_name', 'Mac David Bernal')} sa numerong {biz.get('contact')} para sa iba pang katanungan."
     elif any(k in t for k in ["aso", "dog", "pet", "alaga", "pusa", "cat", "bata", "kids", "child"]):
-        return f"Pasensya na po, Kaibigan, hindi ko po eksaktong alam ang patakaran ukol sa pagpapasok ng aso o pets dahil kulang po ang aking kaalaman bilang AI. Maaari niyo pong direktang tawagan o i-message ang owner na si {biz.get('owner_name', 'Mac David Bernal')} sa {biz.get('contact')} para ma-confirm kung pwede po ang inyong pet."
+        return f"Pasensya na po, {user_name}, hindi ko po eksaktong alam ang patakaran ukol dyan dahil kulang ang aking kaalaman bilang AI. Maaari niyo pong direktang tawagan ang owner na si {biz.get('owner_name', 'Mac David Bernal')} sa {biz.get('contact')}."
     elif any(k in t for k in ["parking", "parada", "kotse", "car", "sasakyan"]):
-        return f"Yes po, mayroon namang pwedeng maparadahan para sa mga sasakyan malapit sa aming jump-off point o port."
+        return f"Yes po, {user_name}, mayroon namang pwedeng maparadahan para sa mga sasakyan malapit sa aming jump-off point o port."
     elif any(k in t for k in ["ilan", "kasya", "capacity", "pax", "tao", "fit", "how many"]):
-        return f"Ang atin pong balsa ay kasya ang hanggang {biz.get('capacity')} katao, Kaibigan!"
+        return f"Ang atin pong balsa ay kasya ang hanggang {biz.get('capacity')} katao, {user_name}!"
     elif any(k in t for k in ["entrance", "fee", "bayad sa pinto", "entrancefee", "entrance fee"]):
-        return f"Wala po tayong hiwalay na entrance fee sa balsa! Ang meron po ay ang P3,500 Day Tour rate natin (7AM-4PM, good for {biz.get('capacity')}) na kasama na ang floating cottage, videoke, ihawan, life vest, at lutuan. May hiwalay lang po na ecological fee (mga P30) sa port o munisipyo."
+        return f"Wala po tayong hiwalay na entrance fee sa balsa, {user_name}! Ang meron po ay ang P3,500 Day Tour rate natin (7AM-4PM, good for {biz.get('capacity')}) na kasama na ang floating cottage, videoke, ihawan, life vest, at lutuan. May ecological fee lang po na mga P30 sa port."
     elif any(k in t for k in ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]):
-        return f"Hello po, {user_name}! Welcome sa {biz.get('name')} dito sa {biz.get('location')}. Ako po ang inyong chat assistant. Paano ko po kayo matutulungan ngayon?"
+        return f"Hello po, {user_name}! Welcome sa {biz.get('name')} dito sa {biz.get('location')}. Paano ko po kayo matutulungan ngayon?"
     elif any(k in t for k in ["pagkain", "bili", "tindahan", "market", "palengke", "ulam", "kain", "food", "eat", "cook"]):
-        return f"May mga malapit na tindahan o palengke naman po sa bayan ng Calatagan kung saan kayo pwedeng mamili ng pagkain at inumin bago sumakay sa balsa."
+        return f"May mga malapit na tindahan o palengke naman po sa bayan ng Calatagan kung saan kayo pwedeng mamili ng pagkain at inumin bago sumakay, {user_name}."
     elif any(k in t for k in ["dec", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "petsa", "date", "araw", "available", "pwede ba", "when"]):
-        return f"Yes po, available po ang mag-inquire at mag-check ng schedule para sa petsang iyan! P3,500 po ang Day Tour rate natin (7AM-4PM) good for {biz.get('capacity')}. Gusto niyo na po bang ituloy ang pagpabook?"
+        return f"Yes po, available po ang mag-inquire at mag-check ng schedule para sa petsang iyan, {user_name}! P3,500 po ang Day Tour rate natin (7AM-4PM). Gusto niyo na po bang ituloy ang pagpabook?"
     elif any(k in t for k in ["magkano", "price", "rate", "pila", "balsa", "tour", "fee", "cost"]):
-        return f"P3,500 po ang rate namin para sa Day Tour (7:00 AM - 4:00 PM). Kasama na po dyan ang floating cottage, videoke, ihawan, life vest, at lutuan (good for {biz.get('capacity')})."
+        return f"P3,500 po ang rate namin para sa Day Tour (7:00 AM - 4:00 PM), {user_name}. Kasama na po dyan ang floating cottage, videoke, ihawan, life vest, at lutuan (good for {biz.get('capacity')})."
     elif any(k in t for k in ["overnight", "gabi", "matulog", "sleep"]):
-        return f"Day Tour lang po kami (7AM hanggang 4PM) at wala pong overnight stay."
+        return f"Day Tour lang po kami (7AM hanggang 4PM) at wala pong overnight stay, {user_name}."
     elif any(k in t for k in ["saan", "location", "address", "map", "where"]):
-        return f"Kami po ay matatagpuan sa {biz.get('location')}. Narito po ang ating Google Maps link para sa inyong gabay papunta sa amin: {biz.get('google_maps_link')}"
+        return f"Kami po ay matatagpuan sa {biz.get('location')}, {user_name}. Narito po ang ating Google Maps link: {biz.get('google_maps_link')}"
     elif any(k in t for k in ["galing", "manggagaling", "route", "way", "paano pumunta"]):
-        return f"Depende po kung saan kayo manggagaling, pwede kayong bumiyahe pa-Calatagan, Batangas. Eto po ang Google Maps link para sa inyong gabay: {biz.get('google_maps_link')}"
+        return f"Depende po kung saan kayo manggagaling, {user_name}. Eto po ang ating Google Maps link para sa inyong gabay papunta sa amin: {biz.get('google_maps_link')}"
     elif any(k in t for k in ["tuloy", "sige book", "magpabook na", "kukunin na namin", "paano magbayad", "proceed", "pay"]):
-        return f"Para ma-lock po ang schedule ninyo, kailangan lang ng P1,000 downpayment sa GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}). I-send lang dito ang screenshot ng resibo pagkatapos!"
+        return f"Para ma-lock po ang schedule ninyo, {user_name}, kailangan lang ng P1,000 downpayment sa GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}). I-send lang dito ang screenshot ng resibo pagkatapos!"
     else:
-        return f"Paumanhin, ngunit hindi ko po alam ang detalyeng iyan dahil kulang ang aking kaalaman bilang AI. Maaari ninyong tawagan o i-text nang direkta ang ating owner na si {biz.get('owner_name', 'Mac David Bernal')} sa numerong {biz.get('contact')} para sa iba pang katanungan."
+        return f"Paumanhin, {user_name}, ngunit hindi ko po alam ang detalyeng iyan. Maaari ninyong tawagan nang direkta ang owner na si {biz.get('owner_name', 'Mac David Bernal')} sa numerong {biz.get('contact')}."
 
 def generate_reply(client, sender_id, text):
     if sender_id not in sessions:
@@ -218,7 +223,7 @@ def generate_reply(client, sender_id, text):
         sessions[sender_id] = {"history": [], "user_name": user_name}
     
     sess = sessions[sender_id]
-    user_name = sess.get("user_name", "Kaibigan")
+    user_name = sess.get("user_name", "Sir/Ma'am")
     
     sess["history"].append(f"Customer: {text}")
     if len(sess["history"]) > 12: sess["history"] = sess["history"][-12:]
@@ -240,7 +245,7 @@ def generate_reply(client, sender_id, text):
 app = Flask(__name__)
 
 @app.route("/")
-def home(): return jsonify({"status":"MQS ChatPilot Cloud Live with Backoff & Rotation","keys_loaded":len(api_keys_pool)})
+def home(): return jsonify({"status":"MQS ChatPilot Cloud Live - Formal Title & Rotation","keys_loaded":len(api_keys_pool)})
 
 @app.route("/health")
 def health(): return jsonify({"ok":True})
