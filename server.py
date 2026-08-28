@@ -286,11 +286,12 @@ def generate_reply(client, sender_id, text):
     # Let AI brain handle most conversation - only minimal deterministic checks remain for booking flow below
     # Business info is GUIDE only for AI, not saved replies
 
-    # AI fallback
+    # AI fallback - debug
     cfg=client["config"]
     provider=cfg.get("ai_provider","gemini")
     api_key=cfg.get("ai_api_key","")
     biz=cfg["business_info"]
+    print(f"[AI] provider={provider} key_len={len(api_key) if api_key else 0} text={text[:30]}", flush=True)
     if provider=="local" or not api_key:
         if any(k in low for k in ["inclusion","kasama"]):
             return f"Our inclusions, Ma'am/Sir, are {biz.get('inclusions','')} — all included in P{biz.get('price_day_amount','3500')} Day Tour 7am-4pm. Photos: {biz.get('balsa_photos_url','')}"
