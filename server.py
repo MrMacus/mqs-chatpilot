@@ -283,16 +283,8 @@ def generate_reply(client, sender_id, text):
             inq=create_inquiry(cid,sender_id,sess["pending_date"],sess["pending_pax"],sess["pending_name"],sess["pending_contact"],sess.get("pending_tour","Day Tour"))
             sess["awaiting_confirm"]=True; sess["inquiry_id"]=inq["id"]
             return f"Thanks {sess['pending_name']}! Summary:\n📅 {sess['pending_date']}\n👥 {sess['pending_pax']} pax\n🏖 {sess.get('pending_tour','Day Tour')} 7am-4pm\n💵 P{biz.get('price_day_amount','3500')} Down P{biz.get('downpayment','1000')} GCash {biz.get('gcash_number','')}\nCorrect? Reply YES to hold. Even if no reply, owner will call {sess['pending_contact']}."
-    # Early greeting handling - for BOTH gemini and local, avoid loop
-    biz_early = client["config"]["business_info"]
-    if any(k in low for k in ["hello","hi ","hey","good morning","good afternoon","kumusta"]):
-        if sess.get("pending_date"):
-            return f"Hello po! 😊 Welcome ulit sa {biz_early.get('name','Balsa ni Mac')} — naalala ko {sess.get('pending_date')} pa rin. How can I help? Ask inclusions, location, or confirm booking!"
-        return f"Hello po! 😊 Welcome sa {biz_early.get('name','Balsa ni Mac')} — Day Tour P{biz_early.get('price_day_amount','3500')} 7am-4pm (no overnight). How can I help? Ask me inclusions, location, or tell me date & pax for booking!"
-    if any(k in low for k in ["wait lang","wait po","tropa","tanong","hold on","sandali","mamaya"]):
-        return f"Sige po, take your time! 😊 Nandito lang ako pag ready na tropa nyo. Just tell me date (like Nov 3) and pax when you're ready — Day Tour P{biz_early.get('price_day_amount','3500')}."
-    if any(k in low for k in ["bakit","why","ganun","loop","paulit"]):
-        return f"Pasensya na po, hindi na mauulit! 😊 Naalala ko {sess.get('pending_date','your inquiry')} — ano po exact date & pax nyo para ma-hold ko?"
+    # Let AI brain handle most conversation - only minimal deterministic checks remain for booking flow below
+    # Business info is GUIDE only for AI, not saved replies
 
     # AI fallback
     cfg=client["config"]
@@ -379,6 +371,34 @@ def verify():
     if mode=="subscribe" and token==expected:
         return challenge,200
     return "Verification failed",403
+
+@app.route("/admin/sync", methods=["POST"])
+def admin_sync():
+    # secure with SYNC_TOKEN env or default
+    import os as _os2
+    expected = _os2.environ.get("SYNC_TOKEN", "mqs_sync_2026")
+    got = request.headers.get("X-SYNC-TOKEN") or request.args.get("token") or ""
+    if got != expected:
+        return jsonify({"error":"unauthorized"}), 401
+    try:
+        data = request.get_json()
+        if not data or "clients" not in data:
+            return jsonify({"error":"need clients"}), 400
+        # save to file
+        with open(CLIENTS_PATH, "w", encoding="utf-8") as f:
+            json.dump(data["clients"], f, ensure_ascii=False, indent=4)
+        # reload
+        global clients
+        clients = data["clients"]
+        print(f"[SYNC] Received {len(clients)} clients, first={clients[0]['name'] if clients else 'none'}", flush=True)
+        return jsonify({"ok":True, "clients":len(clients)}), 200
+    except Exception as e:
+        print(f"[SYNC] error {e}", flush=True)
+        return jsonify({"error":str(e)}), 500
+
+@app.route("/admin/clients", methods=["GET"])
+def admin_clients():
+    return jsonify({"clients": [{"id":c["id"],"name":c["name"],"page_id":c.get("page_id","")} for c in clients]})
 
 @app.route("/webhook", methods=["POST"])
 def webhook():

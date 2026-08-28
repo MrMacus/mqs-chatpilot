@@ -210,6 +210,24 @@ class CCPTMessengerBot(ctk.CTk):
         except Exception as e:
             self.log(f"✗ save clients error: {e}")
 
+    def sync_to_cloud(self):
+        try:
+            import requests
+            url = "https://mqs-chatpilot.onrender.com/admin/sync"
+            headers = {"X-SYNC-TOKEN": "mqs_sync_2026", "Content-Type": "application/json"}
+            # ensure latest clients saved
+            self.save_clients()
+            r = requests.post(url, json={"clients": self.clients}, headers=headers, timeout=12)
+            if r.status_code == 200:
+                messagebox.showinfo("Synced", f"Synced {len(self.clients)} balsas to cloud! Live na agad, no need GitHub upload.")
+                self.log(f"☁ Synced {len(self.clients)} clients to cloud ✓")
+            else:
+                messagebox.showwarning("Sync failed", f"{r.status_code}: {r.text[:200]}")
+                self.log(f"✗ Sync failed {r.status_code}: {r.text[:120]}")
+        except Exception as e:
+            messagebox.showerror("Sync error", str(e))
+            self.log(f"✗ Sync error: {e}")
+
     def get_active_client(self):
         for c in self.clients:
             if c["id"] == self.active_client_id:
@@ -363,6 +381,7 @@ class CCPTMessengerBot(ctk.CTk):
                 btn.pack(side="left", padx=4)
             # + tab
             ctk.CTkButton(self.client_tabs_scroll, text="＋  Add Balsa", width=110, height=32, fg_color=COLORS["green2"], hover_color=COLORS["green"], font=("Segoe UI", 11, "bold"), command=self.add_client).pack(side="left", padx=8)
+            ctk.CTkButton(self.client_tabs_scroll, text="☁ Sync to Cloud", width=120, height=32, fg_color="#4a6fa5", hover_color="#3a5a7c", font=("Segoe UI", 11, "bold"), command=self.sync_to_cloud).pack(side="left", padx=8)
             # rename/delete for active
             ctk.CTkButton(self.client_tabs_scroll, text="✏ Rename", width=80, height=32, fg_color="transparent", border_width=1, border_color=COLORS["border"], text_color=COLORS["text2"], font=("Segoe UI", 10), command=self.rename_active_client).pack(side="left", padx=4)
             ctk.CTkButton(self.client_tabs_scroll, text="🗑", width=40, height=32, fg_color="transparent", border_width=1, border_color=COLORS["red"], text_color=COLORS["red"], font=("Segoe UI", 11), command=self.delete_active_client).pack(side="left", padx=2)
