@@ -283,19 +283,23 @@ def generate_reply(client, sender_id, text):
             inq=create_inquiry(cid,sender_id,sess["pending_date"],sess["pending_pax"],sess["pending_name"],sess["pending_contact"],sess.get("pending_tour","Day Tour"))
             sess["awaiting_confirm"]=True; sess["inquiry_id"]=inq["id"]
             return f"Thanks {sess['pending_name']}! Summary:\n📅 {sess['pending_date']}\n👥 {sess['pending_pax']} pax\n🏖 {sess.get('pending_tour','Day Tour')} 7am-4pm\n💵 P{biz.get('price_day_amount','3500')} Down P{biz.get('downpayment','1000')} GCash {biz.get('gcash_number','')}\nCorrect? Reply YES to hold. Even if no reply, owner will call {sess['pending_contact']}."
+    # Early greeting handling - for BOTH gemini and local, avoid loop
+    biz_early = client["config"]["business_info"]
+    if any(k in low for k in ["hello","hi ","hey","good morning","good afternoon","kumusta"]):
+        if sess.get("pending_date"):
+            return f"Hello po! 😊 Welcome ulit sa {biz_early.get('name','Balsa ni Mac')} — naalala ko {sess.get('pending_date')} pa rin. How can I help? Ask inclusions, location, or confirm booking!"
+        return f"Hello po! 😊 Welcome sa {biz_early.get('name','Balsa ni Mac')} — Day Tour P{biz_early.get('price_day_amount','3500')} 7am-4pm (no overnight). How can I help? Ask me inclusions, location, or tell me date & pax for booking!"
+    if any(k in low for k in ["wait lang","wait po","tropa","tanong","hold on","sandali","mamaya"]):
+        return f"Sige po, take your time! 😊 Nandito lang ako pag ready na tropa nyo. Just tell me date (like Nov 3) and pax when you're ready — Day Tour P{biz_early.get('price_day_amount','3500')}."
+    if any(k in low for k in ["bakit","why","ganun","loop","paulit"]):
+        return f"Pasensya na po, hindi na mauulit! 😊 Naalala ko {sess.get('pending_date','your inquiry')} — ano po exact date & pax nyo para ma-hold ko?"
+
     # AI fallback
     cfg=client["config"]
     provider=cfg.get("ai_provider","gemini")
     api_key=cfg.get("ai_api_key","")
     biz=cfg["business_info"]
     if provider=="local" or not api_key:
-        # simple template - avoid loop, handle greetings
-        if any(k in low for k in ["hello","hi ","hey","good morning","good afternoon"]):
-            return f"Hello po! 😊 Welcome sa {biz.get('name','Balsa ni Mac')} — Day Tour P{biz.get('price_day_amount','3500')} 7am-4pm (no overnight). How can I help? Ask me inclusions, location, or tell me date & pax for booking!"
-        if any(k in low for k in ["wait lang","wait po","tropa","tanong","hold on","sandali"]):
-            return f"Sige po, take your time! 😊 Nandito lang ako pag ready na tropa nyo. Just tell me date (like Nov 3) and pax when you're ready — Day Tour P{biz.get('price_day_amount','3500')}."
-        if any(k in low for k in ["bakit","why","ganun","loop"]):
-            return f"Pasensya na po, nag-reset lang — pero naaalala ko pa rin kayo! 😊 Ano po ulit date nyo? (You mentioned Nov 3 earlier)"
         if any(k in low for k in ["inclusion","kasama"]):
             return f"Our inclusions, Ma'am/Sir, are {biz.get('inclusions','')} — all included in P{biz.get('price_day_amount','3500')} Day Tour 7am-4pm. Photos: {biz.get('balsa_photos_url','')}"
         if any(k in low for k in ["saan","location","maps"]):
