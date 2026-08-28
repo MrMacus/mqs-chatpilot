@@ -29,8 +29,8 @@ def load_clients():
     return []
 
 _env_page = os.environ.get("PAGE_TOKEN") or os.environ.get("PAGE_ACCESS_TOKEN")
-# Diretsong nakalagay ang iyong sk- key dito para hindi na magka-missing authentication header error
-_env_key = os.environ.get("GEMINI_KEY") or os.environ.get("OMNI_KEY") or "sk-df1543af0a48b86d-664eae-f73acc9e"
+# Diretsong nakalagay rito ang API key para hindi na ma-override at iwas 401 error
+_env_key = "sk-df1543af0a48b86d-664eae-f73acc9e"
 _env_verify = os.environ.get("VERIFY_TOKEN")
 _env_pid = os.environ.get("PAGE_ID")
 
