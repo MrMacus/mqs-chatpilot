@@ -1,0 +1,8 @@
+customtkinter
+Pillow
+Flask
+requests
+google-generativeai
+google-genai
+openai
+gunicorn
