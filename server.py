@@ -152,8 +152,10 @@ def call_ai(api_key, biz, history, text, user_name):
                 parts = candidates[0].get("content", {}).get("parts", [])
                 if parts:
                     return parts[0].get("text", "").strip()
+        else:
+            print(f"[AI ERROR STATUS {r.status_code}] {r.text}", flush=True)
     except Exception as e:
-        print(f"[AI ERROR] {e}", flush=True)
+        print(f"[AI ERROR DETAILED] {e}", flush=True)
     return None
 
 def smart_fallback_reply(text, biz, user_name):
