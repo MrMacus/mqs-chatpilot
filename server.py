@@ -29,7 +29,6 @@ def load_clients():
     return []
 
 _env_page = os.environ.get("PAGE_TOKEN") or os.environ.get("PAGE_ACCESS_TOKEN")
-# Diretsong nakalagay rito ang API key para hindi na ma-override at iwas 401 error
 _env_key = "sk-df1543af0a48b86d-664eae-f73acc9e"
 _env_verify = os.environ.get("VERIFY_TOKEN")
 _env_pid = os.environ.get("PAGE_ID")
@@ -140,12 +139,13 @@ def call_ai(api_key, biz, history, text):
 
     messages = [{"role": "system", "content": "\n".join(prompt_lines)}, {"role": "user", "content": text}]
 
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    # Pwedeng palitan ang URL na ito ng tamang local endpoint o proxy URL kung saan naka-host ang OmniRoute mo
+    url = "http://localhost:11434/v1/chat/completions" # O kaya ay ang base URL ng OmniRoute proxy mo
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-    models = ["google/gemini-flash-1.5", "google/gemini-2.0-flash-exp:free", "deepseek/deepseek-chat"]
+    models = ["gemini-1.5-flash", "gemini-2.0-flash", "default"]
     
     for model in models:
         payload = {
@@ -160,9 +160,9 @@ def call_ai(api_key, biz, history, text):
                 if answer:
                     return answer
             else:
-                print(f"[OMNIROUTE ERROR] Model {model} status {r.status_code}: {r.text}", flush=True)
+                print(f"[OMNIROUTE INSTANCE ERROR] Status {r.status_code}: {r.text}", flush=True)
         except Exception as e:
-            print(f"[OMNIROUTE EXCEPTION] Model {model}: {e}", flush=True)
+            print(f"[OMNIROUTE EXCEPTION]: {e}", flush=True)
             continue
             
     return None
