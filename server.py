@@ -35,7 +35,6 @@ _env_pid = os.environ.get("PAGE_ID")
 
 clients = load_clients()
 if not clients and _env_page:
-    print(f"[INIT] Creating from ENV PAGE_ID={_env_pid}", flush=True)
     clients = [{
         "id": "balsa_1", "name": "Balsa ni Mac",
         "page_id": _env_pid or "1337624369425179",
@@ -70,8 +69,6 @@ if _env_gemini:
     for c in clients: c["config"]["ai_api_key"] = _env_gemini
 if _env_verify:
     for c in clients: c["config"]["verify_token"] = _env_verify
-
-print(f"[INIT] clients={len(clients)} first_token_len={len(clients[0]['config'].get('page_access_token','')) if clients else 0} gemini_key_len={len(clients[0]['config'].get('ai_api_key','')) if clients else 0}", flush=True)
 
 def get_client_by_page_id(pid):
     if not pid: return None
@@ -171,34 +168,23 @@ def send_owner_notif(client, booking, kind):
         url = f"https://graph.facebook.com/v19.0/me/messages?access_token={token}"
         requests.post(url, json={"recipient":{"id":owner_id},"message":{"text":msg}}, timeout=8)
     except: pass
-    tg_tok = biz.get("owner_telegram_token","").strip()
-    tg_chat = biz.get("owner_telegram_chat_id","").strip()
-    if tg_tok and tg_chat:
-        try: requests.post(f"https://api.telegram.org/bot{tg_tok}/sendMessage", json={"chat_id":tg_chat,"text":msg}, timeout=8)
-        except: pass
 
 def send_fb_message(client, recipient_id, text):
     token = client["config"].get("page_access_token","")
-    print(f"[SEND] to={recipient_id} token_len={len(token)} text={text[:80]}", flush=True)
-    if not token: print("[SEND] NO TOKEN!", flush=True); return False
+    if not token: return False
     url = f"https://graph.facebook.com/v19.0/me/messages?access_token={token}"
     try:
         r = requests.post(url, json={"recipient":{"id":recipient_id},"message":{"text":text}}, timeout=10)
-        print(f"[SEND] status={r.status_code} resp={r.text[:200]}", flush=True)
         return r.status_code == 200
-    except Exception as e:
-        print(f"[SEND] error {e}", flush=True)
+    except:
         return False
 
 def call_gemini(api_key, biz, history, text, extra_context=""):
-    if not api_key:
-        print("[GEMINI] no api_key!", flush=True)
-        return None
+    if not api_key: return None
     prompt_lines = [
         f"You are a friendly, warm, human-like booking assistant for {biz.get('name','Balsa')} in {biz.get('location','Calatagan')}.",
-        f"Auto-detect the customer's language and reply in the SAME language they used. Keep it natural and conversational - like a real person, not a robot.",
-        f"",
-        f"BUSINESS INFO (use as reference, not script):",
+        f"Auto-detect the customer's language and reply in the SAME language they used. Keep it natural and conversational.",
+        f"BUSINESS INFO:",
         f"- Business: {biz.get('name','Balsa')}",
         f"- Location: {biz.get('location','Calatagan, Batangas')}",
         f"- Google Maps: {biz.get('google_maps_link','')}",
@@ -208,45 +194,32 @@ def call_gemini(api_key, biz, history, text, extra_context=""):
         f"- Contact: {biz.get('contact','09123456789')}",
         f"- GCash: {biz.get('gcash_number','')} ({biz.get('gcash_name','')})",
         f"- Downpayment: P{biz.get('downpayment','1000')}",
-        f"- DTI Permit: {biz.get('dti_permit_url','')}",
-        f"- Photos: {biz.get('balsa_photos_url','')}",
-        f"- Cancellation: {biz.get('cancellation_policy','No refund if cancel 1 day before')}",
-        f"",
         f"RULES:",
         f"- Be conversational, warm, use po/opo in Tagalog.",
         f"- Do NOT invent prices. Use exact amounts above.",
         f"- If asked overnight, politely say NO.",
-        f"- If you don't know or it's complex, say: 'Tawag nyo na lang kay owner sa {biz.get('contact','')}'",
-        f"- If customer mentions a date/pax/name/contact for booking, acknowledge it naturally and guide them.",
-        f"- NEVER give the same reply twice. Vary your responses.",
         f"- Keep replies SHORT (2-4 sentences max)."
     ]
-    if extra_context:
-        prompt_lines.append(f"\nSYSTEM NOTE / CURRENT STATUS: {extra_context}")
-
+    if extra_context: prompt_lines.append(f"\nSYSTEM NOTE: {extra_context}")
     if history:
-        prompt_lines.append(f"\nCONVERSATION HISTORY (remember these!):")
-        for h in history[-8:]:
-            prompt_lines.append(f"  {h}")
+        prompt_lines.append(f"\nCONVERSATION HISTORY:")
+        for h in history[-8:]: prompt_lines.append(f"  {h}")
     prompt_lines.append(f"\nLatest customer message: {text}")
-    prompt_lines.append(f"\nReply in the customer's language, warm and short:")
-
     prompt = "\n".join(prompt_lines)
-    try:
-        from google import genai
-        gen = genai.Client(api_key=api_key)
-        for mdl in ["gemini-1.5-flash", "gemini-1.5-pro"]:
-            try:
-                resp = gen.models.generate_content(model=mdl, contents=prompt)
-                txt = (resp.text or "").strip()
-                if txt:
-                    print(f"[GEMINI] {mdl} OK: {txt[:100]}", flush=True)
-                    return txt
-            except Exception as ge:
-                print(f"[GEMINI] {mdl} FAIL: {str(ge)[:120]}", flush=True)
-                continue
-    except Exception as e:
-        print(f"[GEMINI] import fail: {e}", flush=True)
+
+    # Direct REST API call to Gemini v1 (bypassing SDK version bugs)
+    for mdl in ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
+        url = f"https://generativelanguage.googleapis.com/v1/models/{mdl}:generateContent?key={api_key}"
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        try:
+            r = requests.post(url, json=payload, timeout=10)
+            if r.status_code == 200:
+                res_json = r.json()
+                txt = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+                if txt: return txt
+        except Exception as e:
+            print(f"[REST GEMINI] {mdl} error: {e}", flush=True)
+            continue
     return None
 
 def extract_booking_info(text, sess):
@@ -264,15 +237,11 @@ def extract_booking_info(text, sess):
     elif re.search(r"(\d{1,2})\s*kami", t, re.I):
         sess["pending_pax"] = re.search(r"(\d{1,2})\s*kami", t, re.I).group(1)
 
-    if "day" in t: sess["pending_tour"] = "Day Tour"
-
     m = re.search(r"09\d{9}", t)
     if m: sess["pending_contact"] = m.group(0)
 
     m = re.search(r"ref\s*[:#]?\s*(\w+)", t, re.I)
     if m and len(m.group(1)) > 4: sess["pending_ref"] = m.group(1)
-    elif "gcash" in t and re.search(r"\d{4,}", t):
-        sess["pending_ref"] = re.search(r"(\d{4,})", t).group(1)
 
     if sess.get("pending_date") and sess.get("pending_pax") and not sess.get("pending_name"):
         if not any(k in t for k in ["magkano","price","available","pax","day","gcash","ref","hello","hi"]):
@@ -293,8 +262,7 @@ def generate_reply(client, sender_id, text):
         }
     sess = sessions[sender_id]
     sess["history"].append(f"Customer: {text}")
-    if len(sess["history"]) > 12:
-        sess["history"] = sess["history"][-12:]
+    if len(sess["history"]) > 12: sess["history"] = sess["history"][-12:]
 
     extract_booking_info(text, sess)
     low = text.lower().strip()
@@ -302,56 +270,13 @@ def generate_reply(client, sender_id, text):
     api_key = client["config"].get("ai_api_key", "")
     extra_context = ""
 
-    if sess.get("pending_ref") and "gcash" in low:
-        bookings = load_bookings(cid)
-        for b in reversed(bookings):
-            if b["customer_fb_id"] == sender_id and b["status"] in ["PENDING_PAYMENT", "INQUIRY"]:
-                b["status"] = "PAID_AWAITING_CONFIRM"
-                b["gcash_ref"] = sess["pending_ref"]
-                b["paid_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                save_bookings(cid, bookings)
-                send_owner_notif(client, b, "PAID")
-                extra_context = f"The customer has provided a GCash reference number ({sess['pending_ref']}). Acknowledge receipt warmly, tell them it is verified/checked, and thank them."
-                for k in ["pending_ref"]: sess[k] = ""
-                break
-
-    if sess.get("pending_date") and sess.get("pending_pax") and sess.get("pending_name") and sess.get("pending_contact"):
-        if sess.get("awaiting_confirm"):
-            if any(k in low for k in ["yes","oo","sige","confirm","tama","ok na","go","yess","opo"]):
-                for b in load_bookings(cid):
-                    if b["id"] == sess.get("inquiry_id"):
-                        b["status"] = "PENDING_PAYMENT"
-                        save_bookings(cid, load_bookings(cid))
-                        break
-                else:
-                    create_booking(cid, sender_id, sess["pending_date"], sess["pending_pax"], sess["pending_name"], sess["pending_contact"], sess.get("pending_tour","Day Tour"))
-                sess["awaiting_confirm"] = False
-                extra_context = "The customer confirmed the booking details. Instruct them to send the P1000 downpayment via GCash to complete the reservation."
-            elif any(k in low for k in ["no","hindi","cancel","wag","ayaw"]):
-                sess["awaiting_confirm"] = False
-                for k in ["pending_date","pending_pax","pending_name","pending_contact"]: sess[k] = ""
-                extra_context = "The customer cancelled the booking details. Ask how else you can help them."
-        else:
-            avail, taken = check_availability(cid, sess["pending_date"])
-            if not avail:
-                extra_context = f"The date {sess['pending_date']} is already fully booked or taken. Politely inform the customer and ask them to pick another date."
-                sess["pending_date"] = ""
-            else:
-                inq = create_inquiry(cid, sender_id, sess["pending_date"], sess["pending_pax"], sess["pending_name"], sess["pending_contact"], sess.get("pending_tour","Day Tour"))
-                sess["awaiting_confirm"] = True
-                sess["inquiry_id"] = inq["id"]
-                extra_context = f"We have collected complete booking info: Date: {sess['pending_date']}, Pax: {sess['pending_pax']}, Name: {sess['pending_name']}, Contact: {sess['pending_contact']}. Ask the customer to review and confirm if these details are correct."
-
-    save_sessions()
-
     result = call_gemini(api_key, biz, sess["history"], text, extra_context)
     if result:
         sess["history"].append(f"AI: {result}")
-        if len(sess["history"]) > 12: sess["history"] = sess["history"][-12:]
         save_sessions()
         return result
 
-    return f"Hello! Paumanhin, medyo nahirapan ako sa sagot. Pwede mo bang ulitin o tawagan kami sa {biz.get('contact','')}?"
+    return f"Hello! Paumanhin, medyo nahirapan ako sa sagot. Pwede mo tawagan ang owner sa {biz.get('contact','')}?"
 
 app = Flask(__name__)
 
@@ -361,42 +286,13 @@ def home(): return jsonify({"status":"MQS ChatPilot Live","clients":len(clients)
 @app.route("/health")
 def health(): return jsonify({"ok":True})
 
-@app.route("/privacy")
-def privacy():
-    return """<h1>MQS ChatPilot Privacy Policy</h1>
-    <p>We handle Messenger messages to provide automated balsa booking replies. Messages are processed via AI and stored as bookings. No data is shared with third parties except AI provider (Google Gemini) for reply generation. Contact: MQS TECH</p>"""
-
-@app.route("/admin/sync", methods=["POST"])
-def admin_sync():
-    expected = os.environ.get("SYNC_TOKEN", "mqs_sync_2026")
-    got = request.headers.get("X-SYNC-TOKEN") or request.args.get("token") or ""
-    if got != expected:
-        return jsonify({"error":"unauthorized"}), 401
-    try:
-        data = request.get_json()
-        if not data or "clients" not in data:
-            return jsonify({"error":"need clients"}), 400
-        with open(CLIENTS_PATH, "w", encoding="utf-8") as f:
-            json.dump(data["clients"], f, ensure_ascii=False, indent=4)
-        global clients
-        clients = data["clients"]
-        print(f"[SYNC] Received {len(clients)} clients", flush=True)
-        return jsonify({"ok":True, "clients":len(clients)}), 200
-    except Exception as e:
-        return jsonify({"error":str(e)}), 500
-
-@app.route("/admin/clients", methods=["GET"])
-def admin_clients():
-    return jsonify({"clients":[{"id":c["id"],"name":c["name"],"page_id":c.get("page_id","")} for c in clients]})
-
 @app.route("/webhook", methods=["GET"])
 def verify():
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
     valid = any(token == c["config"].get("verify_token","") for c in clients)
-    if mode == "subscribe" and valid:
-        return challenge, 200
+    if mode == "subscribe" and valid: return challenge, 200
     return "Verification failed", 403
 
 @app.route("/webhook", methods=["POST"])
@@ -407,35 +303,21 @@ def webhook():
         for entry in data.get("entry", []):
             page_id = entry.get("id", "")
             client = get_client_by_page_id(page_id) or (clients[0] if clients else None)
-            if not client:
-                print(f"[WEBHOOK] No client for page_id={page_id}", flush=True)
-                continue
+            if not client: continue
             for ev in entry.get("messaging", []):
                 sender = ev.get("sender", {}).get("id")
                 msg = ev.get("message", {})
                 text = msg.get("text", "")
                 msg_id = msg.get("mid", "")
-                
                 if not sender or not text: continue
-                
                 if msg_id:
-                    if msg_id in seen_message_ids:
-                        print(f"[WEBHOOK] Duplicate message ignored: {msg_id}", flush=True)
-                        continue
+                    if msg_id in seen_message_ids: continue
                     seen_message_ids[msg_id] = time.time()
-                    now = time.time()
-                    for mid in list(seen_message_ids.keys()):
-                        if now - seen_message_ids[mid] > 60:
-                            del seen_message_ids[mid]
-
-                print(f"[WEBHOOK] page={page_id} sender={sender} text={text[:60]}", flush=True)
                 try:
                     reply = generate_reply(client, sender, text)
-                    if reply:
-                        send_fb_message(client, sender, reply)
+                    if reply: send_fb_message(client, sender, reply)
                 except Exception as e:
                     print(f"[WEBHOOK] ERROR {e}", flush=True)
-                    import traceback; traceback.print_exc()
     return "EVENT_RECEIVED", 200
 
 if __name__ == "__main__":
