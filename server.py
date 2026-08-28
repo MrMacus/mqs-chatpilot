@@ -101,11 +101,22 @@ def send_fb_message(client, recipient_id, text):
     except:
         return False
 
+def smart_fallback_reply(text, biz):
+    t = text.lower()
+    if any(k in t for k in ["magkano", "price", "rate", "pila", "balsa", "tour", "fee"]):
+        return f"Hello po! Ang Day Tour rate po namin ay P{biz.get('price_day_amount','3500')} (7:00 AM - 4:00 PM). Kasama na po ang floating cottage, videoke, ihawan, life vest, at lutuan! Good for {biz.get('capacity','15-20 pax')} po siya. Gusto niyo po ba magpa-book?"
+    elif any(k in t for k in ["overnight", "gabi", "matulog"]):
+        return f"Paumanhin po, Day Tour lang po kami (7:00 AM - 4:00 PM) at walang overnight. Pwede niyo po kaming tawagan sa {biz.get('contact','')} para sa iba pangdetalye."
+    elif any(k in t for k in ["saan", "location", "address", "map", "paano pumunta"]):
+        return f"Located po kami sa {biz.get('location','Calatagan, Batangas')}. Narito po ang Google Maps link namin: {biz.get('google_maps_link','')}"
+    elif any(k in t for k in ["gcash", "payment", "downpayment", "pay", "bayad"]):
+        return f"Para po sa downpayment na P{biz.get('downpayment','1000')}, maaari niyo pong i-send sa GCash:\nName: {biz.get('gcash_name','')}\nNumber: {biz.get('gcash_number','')}\n\nI-send lang po dito ang screenshot ng resibo pagkatapos!"
+    else:
+        return f"Hello po! Welcome sa {biz.get('name','Balsa ni Mac')} sa {biz.get('location','Calatagan')}. Day tour po tayo (7AM-4PM) sa halagang P{biz.get('price_day_amount','3500')} ({biz.get('capacity','15-20 pax')}). May gusto po ba kayong itanong o gustong i-book na date?"
+
 def call_gemini(api_key, biz, history, text, extra_context=""):
-    if not api_key:
-        print("[REST GEMINI] ERROR: Walang nakalagay na Gemini API Key!", flush=True)
-        return None
-        
+    if not api_key: return None
+    
     prompt_lines = [
         f"You are a friendly, warm, human-like booking assistant for {biz.get('name','Balsa')} in {biz.get('location','Calatagan')}.",
         f"Auto-detect the customer's language and reply in the SAME language they used. Keep it natural and conversational.",
@@ -132,29 +143,18 @@ def call_gemini(api_key, biz, history, text, extra_context=""):
     prompt_lines.append(f"\nLatest customer message: {text}")
     prompt = "\n".join(prompt_lines)
 
-    # Gamitin ang rekomendasyon mismo ng Google API logs
-    models_to_try = [
-        "gemini-3.6-flash",
-        "gemini-2.5-flash",
-        "gemini-2.0-flash"
-    ]
-    
-    for mdl in models_to_try:
+    for mdl in ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"]:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={api_key}"
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         try:
             r = requests.post(url, json=payload, timeout=10)
-            print(f"[REST GEMINI] Trying model {mdl} -> Status: {r.status_code}", flush=True)
             if r.status_code == 200:
                 res_json = r.json()
                 txt = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
-                if txt:
-                    print(f"[REST GEMINI] Success with {mdl}!", flush=True)
-                    return txt
+                if txt: return txt
             else:
-                print(f"[REST GEMINI] Error {mdl}: {r.text}", flush=True)
+                print(f"[REST GEMINI] Model {mdl} status {r.status_code}: {r.text}", flush=True)
         except Exception as e:
-            print(f"[REST GEMINI] Exception on {mdl}: {e}", flush=True)
             continue
             
     return None
@@ -173,15 +173,19 @@ def generate_reply(client, sender_id, text):
 
     biz = client["config"]["business_info"]
     api_key = client["config"].get("ai_api_key", "")
-    extra_context = ""
 
-    result = call_gemini(api_key, biz, sess["history"], text, extra_context)
+    # Subukan tawagin ang Gemini API
+    result = call_gemini(api_key, biz, sess["history"], text)
     if result:
         sess["history"].append(f"AI: {result}")
         save_sessions()
         return result
 
-    return f"Hello! Paumanhin, medyo nahirapan ako sa sagot. Pwede mo tawagan ang owner sa {biz.get('contact','')}?"
+    # Kung nag-429 Quota Exhausted o Error, gamitin ang Smart Fallback para hindi mapahiya sa customer!
+    fallback = smart_fallback_reply(text, biz)
+    sess["history"].append(f"AI (Fallback): {fallback}")
+    save_sessions()
+    return fallback
 
 app = Flask(__name__)
 
