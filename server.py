@@ -124,6 +124,19 @@ try: import requests
 except: requests=None
 
 sessions = {}
+SESSIONS_PATH = resource_path("sessions.json")
+def load_sessions():
+    global sessions
+    if os.path.exists(SESSIONS_PATH):
+        try:
+            sessions = json.load(open(SESSIONS_PATH, encoding="utf-8"))
+        except: sessions = {}
+def save_sessions():
+    try:
+        with open(SESSIONS_PATH, "w", encoding="utf-8") as f:
+            json.dump(sessions, f, ensure_ascii=False, indent=2)
+    except: pass
+load_sessions()
 
 def check_availability(cid, date_str):
     bookings = load_bookings(cid)
@@ -198,9 +211,10 @@ def send_owner_notif(client, booking, kind):
 
 def extract_info(text, sess):
     t=text.lower()
-    for pat in [r"(\d{4}-\d{1,2}-\d{1,2})", r"(\d{1,2}/\d{1,2})", r"(aug\w*\s*\d{1,2})", r"(sept?\s*\d{1,2})"]:
+    # include all months
+    for pat in [r"(\d{4}-\d{1,2}-\d{1,2})", r"(\d{1,2}/\d{1,2})", r"(jan\w*\s*\d{1,2})", r"(feb\w*\s*\d{1,2})", r"(mar\w*\s*\d{1,2})", r"(apr\w*\s*\d{1,2})", r"(may\s*\d{1,2})", r"(june\s*\d{1,2})", r"(july\s*\d{1,2})", r"(aug\w*\s*\d{1,2})", r"(sept?\s*\d{1,2})", r"(oct\w*\s*\d{1,2})", r"(nov\w*\s*\d{1,2})", r"(dec\w*\s*\d{1,2})", r"(\d{1,2}\s*ng\s*\w+)"]:
         m=re.search(pat,t,re.I)
-        if m: sess["pending_date"]=m.group(1); break
+        if m: sess["pending_date"]=m.group(1).strip(); break
     m=re.search(r"(\d{1,2})\s*pax",t,re.I)
     if m: sess["pending_pax"]=m.group(1)
     elif re.search(r"(\d{1,2})\s*kami",t,re.I): sess["pending_pax"]=re.search(r"(\d{1,2})\s*kami",t,re.I).group(1)
@@ -217,6 +231,8 @@ def generate_reply(client, sender_id, text):
     if sender_id not in sessions: sessions[sender_id]={"history":[],"pending_date":"","pending_pax":"","pending_tour":"Day Tour","pending_name":"","pending_contact":"","pending_ref":"","awaiting_confirm":False,"inquiry_id":""}
     sess=sessions[sender_id]
     sess["history"].append(f"Customer: {text}")
+    if len(sess["history"])>12: sess["history"]=sess["history"][-12:]
+    save_sessions()
     extract_info(text, sess)
     low=text.lower()
     # name
@@ -281,15 +297,16 @@ def generate_reply(client, sender_id, text):
         if any(k in low for k in ["magkano","price","how much"]):
             return f"Hello! P{biz.get('price_day_amount','3500')} Day Tour 7am-4pm, capacity {biz.get('capacity','')}, inclusions {biz.get('inclusions','')}. Which date and how many pax?"
         if sess.get("pending_date") and not sess.get("pending_pax"):
-            return f"Noted {sess['pending_date']}, how many pax? (max {biz.get('capacity','')})"
+            return f"Noted {sess['pending_date']} — thanks for mentioning Nov 3 earlier! How many pax will you be? (max {biz.get('capacity','')})"
         if sess.get("pending_date") and sess.get("pending_pax"):
-            return f"Got it {sess['pending_date']} - {sess['pending_pax']} pax. What is your name and contact?"
-        return f"Hello! Day Tour P{biz.get('price_day_amount','3500')} 7am-4pm, capacity {biz.get('capacity','')}. Which date and pax?"
+            return f"Got it {sess['pending_date']} - {sess['pending_pax']} pax. What is your name and contact so I can hold it? I remember you mentioned {sess['pending_date']} earlier."
+        return f"Hello! Day Tour P{biz.get('price_day_amount','3500')} 7am-4pm, capacity {biz.get('capacity','')}. I remember you were asking about inclusions and location — happy to help! Which date and pax are you considering (you mentioned Nov 3)?"
     # gemini
     try:
         from google import genai
         gen=genai.Client(api_key=api_key)
-        prompt=cfg.get("ai_system_prompt","").format(**biz) + f"\nCustomer: {text}\nReply same language as customer, short:"
+        hist="\n".join(sess["history"][-6:])
+        prompt=cfg.get("ai_system_prompt","").format(**biz) + f"\nConversation history (remember these!):\n{hist}\nLatest customer message: {text}\nImportant: Do NOT forget earlier messages like Nov 3 date, inclusions, location. Reply same language as customer, warm, short, and reference history if relevant:"
         for mdl in ["gemini-3.6-flash","gemini-flash-latest"]:
             try:
                 resp=gen.models.generate_content(model=mdl, contents=prompt)
