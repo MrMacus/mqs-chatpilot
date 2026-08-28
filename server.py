@@ -4,7 +4,7 @@ Deployed to Render: https://mqs-chatpilot.onrender.com
 """
 import os, json, re, time, random
 from datetime import datetime
-from Flask import Flask, request, jsonify
+from flask import Flask, request, jsonify
 import requests
 
 def resource_path(p): return os.path.join(os.path.dirname(__file__), p)
@@ -117,7 +117,6 @@ def get_fb_user_name(client, sender_id):
             data = r.json()
             fname = data.get("first_name", "Sir/Ma'am")
             gender = data.get("gender", "")
-            # Tukuyin kung Sir o Ma'am base sa gender ng FB kung available, default sa Sir kung hindi tukoy
             title = "Ma'am" if gender == "female" else "Sir"
             return f"{title} {fname}"
     except:
