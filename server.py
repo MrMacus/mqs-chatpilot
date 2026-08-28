@@ -1,5 +1,5 @@
 """
-MQS ChatPilot - Cloud Webhook Server (headless, no UI)
+MQS ChatPilot - Cloud Webhook Server with OmniRoute Support
 Deployed to Render: https://mqs-chatpilot.onrender.com
 """
 import os, json, re, time
@@ -29,7 +29,6 @@ def load_clients():
     return []
 
 _env_page = os.environ.get("PAGE_TOKEN") or os.environ.get("PAGE_ACCESS_TOKEN")
-_env_gemini = os.environ.get("GEMINI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 _env_verify = os.environ.get("VERIFY_TOKEN")
 _env_pid = os.environ.get("PAGE_ID")
 
@@ -41,8 +40,9 @@ if not clients and _env_page:
         "config": {
             "page_access_token": _env_page,
             "verify_token": _env_verify or "mqs_verify_2026",
-            "ai_provider": "gemini",
-            "ai_api_key": _env_gemini or "",
+            "ai_provider": "omniroute",
+            "ai_api_key": "sk-df1543af0a48b86d-664eae-f73acc9e",
+            "omni_base_url": "http://localhost:20128/v1",
             "port": 5000,
             "business_info": {
                 "name": "Balsa ni Mac", "location": "Calatagan, Batangas",
@@ -65,10 +65,12 @@ if not clients and _env_page:
 elif _env_page and clients:
     clients[0]["config"]["page_access_token"] = _env_page
     if _env_pid: clients[0]["page_id"] = _env_pid
-if _env_gemini:
-    for c in clients: c["config"]["ai_api_key"] = _env_gemini
-if _env_verify:
-    for c in clients: c["config"]["verify_token"] = _env_verify
+
+# Naka-embed na rin dito ang iyong OmniRoute API Key sakaling mag-reload ang config
+for c in clients:
+    c["config"]["ai_api_key"] = "sk-df1543af0a48b86d-664eae-f73acc9e"
+    if not c["config"].get("omni_base_url"):
+        c["config"]["omni_base_url"] = "http://localhost:20128/v1"
 
 def get_client_by_page_id(pid):
     if not pid: return None
@@ -106,7 +108,7 @@ def smart_fallback_reply(text, biz):
     if any(k in t for k in ["magkano", "price", "rate", "pila", "balsa", "tour", "fee"]):
         return f"Hello po! Ang Day Tour rate po namin ay P{biz.get('price_day_amount','3500')} (7:00 AM - 4:00 PM). Kasama na po ang floating cottage, videoke, ihawan, life vest, at lutuan! Good for {biz.get('capacity','15-20 pax')} po siya. Gusto niyo po ba magpa-book?"
     elif any(k in t for k in ["overnight", "gabi", "matulog"]):
-        return f"Paumanhin po, Day Tour lang po kami (7:00 AM - 4:00 PM) at walang overnight. Pwede niyo po kaming tawagan sa {biz.get('contact','')} para sa iba pangdetalye."
+        return f"Paumanhin po, Day Tour lang po kami (7:00 AM - 4:00 PM) at walang overnight. Pwede niyo po kaming tawagan sa {biz.get('contact','')} para sa iba pang detalye."
     elif any(k in t for k in ["saan", "location", "address", "map", "paano pumunta"]):
         return f"Located po kami sa {biz.get('location','Calatagan, Batangas')}. Narito po ang Google Maps link namin: {biz.get('google_maps_link','')}"
     elif any(k in t for k in ["gcash", "payment", "downpayment", "pay", "bayad"]):
@@ -114,8 +116,9 @@ def smart_fallback_reply(text, biz):
     else:
         return f"Hello po! Welcome sa {biz.get('name','Balsa ni Mac')} sa {biz.get('location','Calatagan')}. Day tour po tayo (7AM-4PM) sa halagang P{biz.get('price_day_amount','3500')} ({biz.get('capacity','15-20 pax')}). May gusto po ba kayong itanong o gustong i-book na date?"
 
-def call_gemini(api_key, biz, history, text, extra_context=""):
-    if not api_key: return None
+def call_omniroute(client_config, biz, history, text):
+    base_url = client_config.get("omni_base_url", "http://localhost:20128/v1").rstrip("/")
+    api_key = client_config.get("ai_api_key", "sk-df1543af0a48b86d-664eae-f73acc9e")
     
     prompt_lines = [
         f"You are a friendly, warm, human-like booking assistant for {biz.get('name','Balsa')} in {biz.get('location','Calatagan')}.",
@@ -136,31 +139,42 @@ def call_gemini(api_key, biz, history, text, extra_context=""):
         f"- If asked overnight, politely say NO.",
         f"- Keep replies SHORT (2-4 sentences max)."
     ]
-    if extra_context: prompt_lines.append(f"\nSYSTEM NOTE: {extra_context}")
     if history:
         prompt_lines.append(f"\nCONVERSATION HISTORY:")
         for h in history[-8:]: prompt_lines.append(f"  {h}")
     prompt_lines.append(f"\nLatest customer message: {text}")
     prompt = "\n".join(prompt_lines)
 
-    for mdl in ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"]:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={api_key}"
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    url = f"{base_url}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    models_to_try = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    
+    for mdl in models_to_try:
+        payload = {
+            "model": mdl,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.7
+        }
         try:
-            r = requests.post(url, json=payload, timeout=10)
+            r = requests.post(url, json=payload, headers=headers, timeout=15)
             if r.status_code == 200:
                 res_json = r.json()
-                txt = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
-                if txt: return txt
+                content = res_json.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                if content:
+                    return content
             else:
-                print(f"[REST GEMINI] Model {mdl} status {r.status_code}: {r.text}", flush=True)
+                print(f"[OMNIROUTE] Model {mdl} status {r.status_code}: {r.text}", flush=True)
         except Exception as e:
+            print(f"[OMNIROUTE] Exception on {mdl}: {e}", flush=True)
             continue
             
     return None
 
 def generate_reply(client, sender_id, text):
-    cid = client["id"]
     if sender_id not in sessions:
         sessions[sender_id] = {
             "history": [], "pending_date": "", "pending_pax": "",
@@ -171,17 +185,15 @@ def generate_reply(client, sender_id, text):
     sess["history"].append(f"Customer: {text}")
     if len(sess["history"]) > 12: sess["history"] = sess["history"][-12:]
 
-    biz = client["config"]["business_info"]
-    api_key = client["config"].get("ai_api_key", "")
+    config = client["config"]
+    biz = config["business_info"]
 
-    # Subukan tawagin ang Gemini API
-    result = call_gemini(api_key, biz, sess["history"], text)
+    result = call_omniroute(config, biz, sess["history"], text)
     if result:
         sess["history"].append(f"AI: {result}")
         save_sessions()
         return result
 
-    # Kung nag-429 Quota Exhausted o Error, gamitin ang Smart Fallback para hindi mapahiya sa customer!
     fallback = smart_fallback_reply(text, biz)
     sess["history"].append(f"AI (Fallback): {fallback}")
     save_sessions()
@@ -190,7 +202,7 @@ def generate_reply(client, sender_id, text):
 app = Flask(__name__)
 
 @app.route("/")
-def home(): return jsonify({"status":"MQS ChatPilot Live","clients":len(clients)})
+def home(): return jsonify({"status":"MQS ChatPilot OmniRoute Live","clients":len(clients)})
 
 @app.route("/health")
 def health(): return jsonify({"ok":True})
