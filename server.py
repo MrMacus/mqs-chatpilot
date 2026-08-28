@@ -235,7 +235,6 @@ def call_gemini(api_key, biz, history, text, extra_context=""):
     try:
         from google import genai
         gen = genai.Client(api_key=api_key)
-        # Updated stable models list
         for mdl in ["gemini-2.0-flash", "gemini-flash", "gemini-pro"]:
             try:
                 resp = gen.models.generate_content(model=mdl, contents=prompt)
@@ -303,7 +302,6 @@ def generate_reply(client, sender_id, text):
     api_key = client["config"].get("ai_api_key", "")
     extra_context = ""
 
-    # --- GCash ref received ---
     if sess.get("pending_ref") and "gcash" in low:
         bookings = load_bookings(cid)
         for b in reversed(bookings):
@@ -317,7 +315,6 @@ def generate_reply(client, sender_id, text):
                 for k in ["pending_ref"]: sess[k] = ""
                 break
 
-    # --- Confirmation flow ---
     if sess.get("pending_date") and sess.get("pending_pax") and sess.get("pending_name") and sess.get("pending_contact"):
         if sess.get("awaiting_confirm"):
             if any(k in low for k in ["yes","oo","sige","confirm","tama","ok na","go","yess","opo"]):
@@ -347,7 +344,6 @@ def generate_reply(client, sender_id, text):
 
     save_sessions()
 
-    # --- GEMINI handles ALL conversation with context ---
     result = call_gemini(api_key, biz, sess["history"], text, extra_context)
     if result:
         sess["history"].append(f"AI: {result}")
@@ -422,7 +418,6 @@ def webhook():
                 
                 if not sender or not text: continue
                 
-                # Deduplication check para iwas doble/loop reply
                 if msg_id:
                     if msg_id in seen_message_ids:
                         print(f"[WEBHOOK] Duplicate message ignored: {msg_id}", flush=True)
@@ -446,4 +441,3 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-```[cite: 10]
