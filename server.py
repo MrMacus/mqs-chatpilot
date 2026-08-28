@@ -89,6 +89,18 @@ def save_sessions():
     except: pass
 load_sessions()
 
+def get_fb_user_name(client, sender_id):
+    token = client["config"].get("page_access_token", "")
+    if not token: return "Kaibigan"
+    url = f"https://graph.facebook.com/v19.0/{sender_id}?fields=first_name&access_token={token}"
+    try:
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            return r.json().get("first_name", "Kaibigan")
+    except:
+        pass
+    return "Kaibigan"
+
 def send_fb_message(client, recipient_id, text):
     token = client["config"].get("page_access_token","")
     if not token: return False
@@ -99,23 +111,26 @@ def send_fb_message(client, recipient_id, text):
     except:
         return False
 
-def call_ai(api_key, biz, history, text):
+def call_ai(api_key, biz, history, text, user_name):
     if not api_key: return None
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     
     system_instruction = (
-        f"Ikaw ang friendly at masayahing chat assistant ng {biz.get('name')} na matatagpuan sa {biz.get('location')}. "
-        f"Ang Day Tour rate ay P{biz.get('price_day_amount')} (7:00 AM - 4:00 PM), good for {biz.get('capacity')}. "
-        f"Kasama rito ang: {biz.get('inclusions')}. "
-        f"Wala kayong overnight stay, Day Tour lang po. "
-        f"Para sa pagkain, pwedeng mamili o magdala ng sariling baon galing sa bayan o malapit na tindahan sa Calatagan bago sumakay. "
-        f"Para sa booking at downpayment, kailangan ng P{biz.get('downpayment')} sa GCash (Name: {biz.get('gcash_name')}, Number: {biz.get('gcash_number')}). "
-        f"Kapag hindi mo sigurado o hindi mo alam ang sagot sa tanong ng customer, sabihin mo nang magalang na kontakin o tawagan ang owner sa numerong {biz.get('contact')} para sa iba pang katanungan. "
-        f"Umusap ka nang natural, direktang sagutin ang tanong ng customer, at huwag magpumilit mag-book kung nagtatanong lang sila tungkol sa iba pang detalye."
+        f"You are the friendly and cheerful chat assistant of {biz.get('name')} located in {biz.get('location')}. "
+        f"The user's name is {user_name}. "
+        f"Rules:\n"
+        f"1. **Language Matching:** Match the language used by the customer. If they speak Tagalog/Taglish, reply in Tagalog/Taglish. If they speak English, reply in fluent English.\n"
+        f"2. **Greetings:** If it's the start of the conversation or they say hi/hello, greet them properly using their name ({user_name}) and ask how you can help.\n"
+        f"3. **No Premature Downpayment:** DO NOT mention downpayment or GCash when they are just asking about availability dates, rates, inclusions, food, or headcount. Answer their specific questions directly first.\n"
+        f"4. **Booking Confirmation Only:** Only mention the P{biz.get('downpayment')} downpayment and GCash details ({biz.get('gcash_number')} - {biz.get('gcash_name')}) at the very end when they explicitly confirm they want to book.\n"
+        f"5. **Day Tour Only:** Day Tour only (7:00 AM - 4:00 PM, P{biz.get('price_day_amount')}, good for {biz.get('capacity')}). No overnight stay.\n"
+        f"6. **Directions / Travel Routes:** Kapag nagtanong ang customer kung paano pumunta galing sa isang specific na lugar o location nila, gabayan sila nang maikli kung saang daan dadaan papuntang Calatagan at ibigay ang Google Maps link na ito para magsilbing gabay sa kanilang biyahe: {biz.get('google_maps_link')}.\n"
+        f"7. **No Repetitive Greetings:** DO NOT include repetitive 'Hello po!' or fresh greetings in the middle of an ongoing conversation. Keep the dialogue flowing naturally.\n"
+        f"8. **Out of Scope:** If you are unsure or out of scope, politely advise them to call the owner at {biz.get('contact')}.\n"
     )
     
     contents = []
-    for h in history[-6:]:
+    for h in history[-8:]:
         role = "user" if "Customer:" in h else "model"
         msg_text = h.split(": ", 1)[1] if ": " in h else h
         contents.append({"role": role, "parts": [{"text": msg_text}]})
@@ -138,27 +153,51 @@ def call_ai(api_key, biz, history, text):
         print(f"[AI ERROR] {e}", flush=True)
     return None
 
-def smart_fallback_reply(text, biz):
+def smart_fallback_reply(text, biz, user_name):
     t = text.lower()
-    if any(k in t for k in ["pagkain", "bili", "tindahan", "market", "palengke", "ulam", "kain"]):
-        return f"May mga malapit na tindahan o palengke naman po sa bayan ng Calatagan kung saan kayo pwedeng mamili ng pagkain at inumin bago sumakay sa balsa!"
-    elif any(k in t for k in ["dec", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "petsa", "date", "araw", "available", "pwede ba", "magpabook", "book"]):
-        return f"Yes po, available po mag-book sa gusto nyong date! P3,500 po ang Day Tour natin (7AM-4PM). Kailangan lang po ng P1,000 downpayment via GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}) para ma-lock po natin ang schedule ninyo."
-    elif any(k in t for k in ["magkano", "price", "rate", "pila", "balsa", "tour", "fee"]):
-        return f"P3,500 po ang rate namin para sa Day Tour (7:00 AM - 4:00 PM). Sulit na sulit dahil kasama na dyan ang floating cottage, videoke, ihawan, life vest, at lutuan! Pwedeng-pwede sa tropa o pamilya (good for {biz.get('capacity')})."
-    elif any(k in t for k in ["overnight", "gabi", "matulog"]):
-        return f"Ay sorry po, hanggang Day Tour lang po talaga kami (7AM hanggang 4PM) at wala pong overnight stay."
-    elif any(k in t for k in ["saan", "location", "address", "map", "paano pumunta"]):
-        return f"Sa {biz.get('location')} po kami nakaposisyon. Eto po ang Google Maps link para mas madali kayong makapunta: {biz.get('google_maps_link')}"
-    elif any(k in t for k in ["gcash", "payment", "downpayment", "pay", "bayad"]):
-        return f"Eto po ang GCash details para sa P1,000 downpayment:\n\nName: {biz.get('gcash_name')}\nNumber: {biz.get('gcash_number')}\n\nI-send lang po dito ang screenshot ng resibo pagkatapos magbayad!"
+    is_english = any(w in t for w in ["hi", "hello", "hey", "how", "what", "is", "are", "can", "rate", "price", "food", "location", "book", "date", "from"])
+
+    if any(k in t for k in ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]):
+        if is_english:
+            return f"Hello, {user_name}! Welcome to {biz.get('name')} in {biz.get('location')}. How can I help you today?"
+        return f"Hello po, {user_name}! Welcome sa {biz.get('name')} sa {biz.get('location')}. Ano po ang magagawa ko para sa inyo ngayon?"
+    elif any(k in t for k in ["pagkain", "bili", "tindahan", "market", "palengke", "ulam", "kain", "food", "eat", "cook"]):
+        if is_english:
+            return f"You can bring your own food or buy fresh ingredients from the local market or nearby stores in Calatagan before boarding the raft. Cooking utensils and a grill are already included!"
+        return f"May mga malapit na tindahan o palengke naman po sa bayan ng Calatagan kung saan kayo pwedeng mamili ng pagkain at inumin bago sumakay sa balsa."
+    elif any(k in t for k in ["dec", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "petsa", "date", "araw", "available", "pwede ba", "when"]):
+        if is_english:
+            return f"Yes, you can inquire and check availability for that date! Our Day Tour rate is P3,500 (7AM-4PM), good for {biz.get('capacity')}. Would you like to proceed with booking?"
+        return f"Yes po, available po ang mag-inquire at mag-check ng schedule para sa petsang iyan! P3,500 po ang Day Tour rate natin (7AM-4PM) good for {biz.get('capacity')}. Gusto niyo na po bang ituloy ang pagpabook?"
+    elif any(k in t for k in ["magkano", "price", "rate", "pila", "balsa", "tour", "fee", "cost"]):
+        if is_english:
+            return f"Our Day Tour rate is P3,500 (7:00 AM - 4:00 PM). It includes the floating cottage, videoke, grill, life vests, and cooking equipment (good for {biz.get('capacity')})."
+        return f"P3,500 po ang rate namin para sa Day Tour (7:00 AM - 4:00 PM). Kasama na po dyan ang floating cottage, videoke, ihawan, life vest, at lutuan (good for {biz.get('capacity')})."
+    elif any(k in t for k in ["overnight", "gabi", "matulog", "sleep"]):
+        if is_english:
+            return f"We only offer Day Tours (7:00 AM - 4:00 PM). We do not have overnight stays."
+        return f"Day Tour lang po kami (7AM hanggang 4PM) at wala pong overnight stay."
+    elif any(k in t for k in ["saan", "location", "address", "map", "paano pumunta", "where", "galing", "manggagaling", "route", "way"]):
+        if is_english:
+            return f"Kung dyan po kayo manggagaling, pwede po kayong dumiretso papuntang Calatagan, Batangas. Para mas madali kayong gabayan sa inyong biyahe, i-click lang po ang Google Maps link na ito: {biz.get('google_maps_link')}"
+        return f"Kung dyan po kayo manggagaling, pwede po kayong bumiyahe pa-Calatagan, Batangas. Narito po ang ating Google Maps link para gabayan kayo sa ruta papunta sa amin: {biz.get('google_maps_link')}"
+    elif any(k in t for k in ["tuloy", "sige book", "magpabook na", "kukunin na namin", "paano magbayad", "proceed", "pay"]):
+        if is_english:
+            return f"To lock in your schedule, a P1,000 downpayment is required via GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}). Just send the screenshot of your receipt here once paid!"
+        return f"Para ma-lock po ang schedule ninyo, kailangan lang ng P1,000 downpayment sa GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}). I-send lang dito ang screenshot ng resibo pagkatapos!"
     else:
-        return f"Hindi ko po sigurado ang tungkol dyan, pwede ninyong tawagan o i-text ang aming owner sa numerong {biz.get('contact')} para sa iba pang katanungan."
+        if is_english:
+            return f"Is there anything else you'd like to know? You can also contact our owner at {biz.get('contact')} for more details."
+        return f"Tungkol saan po kaya ang nais niyo pang malaman? Pwede niyo pong tawagan ang aming owner sa {biz.get('contact')} para sa iba pang detalye."
 
 def generate_reply(client, sender_id, text):
     if sender_id not in sessions:
-        sessions[sender_id] = {"history": []}
+        user_name = get_fb_user_name(client, sender_id)
+        sessions[sender_id] = {"history": [], "user_name": user_name}
+    
     sess = sessions[sender_id]
+    user_name = sess.get("user_name", "Kaibigan")
+    
     sess["history"].append(f"Customer: {text}")
     if len(sess["history"]) > 12: sess["history"] = sess["history"][-12:]
 
@@ -166,13 +205,13 @@ def generate_reply(client, sender_id, text):
     biz = config["business_info"]
     api_key = config.get("ai_api_key", "")
 
-    result = call_ai(api_key, biz, sess["history"], text)
+    result = call_ai(api_key, biz, sess["history"], text, user_name)
     if result:
         sess["history"].append(f"AI: {result}")
         save_sessions()
         return result
 
-    fallback = smart_fallback_reply(text, biz)
+    fallback = smart_fallback_reply(text, biz, user_name)
     sess["history"].append(f"AI (Fallback): {fallback}")
     save_sessions()
     return fallback
