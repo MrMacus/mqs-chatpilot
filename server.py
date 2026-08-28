@@ -114,7 +114,7 @@ def send_fb_message(client, recipient_id, text):
 
 def call_ai(api_key, biz, history, text, user_name):
     if not api_key: return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
     system_instruction = (
         f"You are the friendly and cheerful chat assistant of {biz.get('name')} located in {biz.get('location')}. "
