@@ -91,24 +91,6 @@ def save_sessions():
     except: pass
 load_sessions()
 
-def bookings_path(cid): return resource_path(f"bookings_{cid}.json")
-def load_bookings(cid):
-    p = bookings_path(cid)
-    if os.path.exists(p):
-        try:
-            with open(p,'r',encoding='utf-8') as f: return json.load(f)
-        except: return []
-    if os.path.exists(BOOKINGS_PATH):
-        try: return json.load(open(BOOKINGS_PATH,encoding='utf-8'))
-        except: pass
-    return []
-def save_bookings(cid, data):
-    p = bookings_path(cid)
-    try:
-        with open(p,'w',encoding='utf-8') as f: json.dump(data,f,indent=4,ensure_ascii=False)
-        with open(BOOKINGS_PATH,'w',encoding='utf-8') as f: json.dump(data,f,indent=4,ensure_ascii=False)
-    except: pass
-
 def send_fb_message(client, recipient_id, text):
     token = client["config"].get("page_access_token","")
     if not token: return False
@@ -150,20 +132,20 @@ def call_gemini(api_key, biz, history, text, extra_context=""):
     prompt_lines.append(f"\nLatest customer message: {text}")
     prompt = "\n".join(prompt_lines)
 
-    # Subukan natin ang iba't ibang bersyon ng v1 endpoints at model names
-    endpoints = [
-        ("v1", "gemini-1.5-flash"),
-        ("v1", "gemini-1.5-pro"),
-        ("v1beta", "gemini-1.5-flash"),
-        ("v1beta", "gemini-pro")
+    # Subukan ang mga bagong available models na sinusuportahan ng mga bagong API keys
+    models_to_try = [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro-latest"
     ]
     
-    for ver, mdl in endpoints:
-        url = f"https://generativelanguage.googleapis.com/{ver}/models/{mdl}:generateContent?key={api_key}"
+    for mdl in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={api_key}"
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         try:
             r = requests.post(url, json=payload, timeout=10)
-            print(f"[REST GEMINI] Trying {ver}/{mdl} -> Status: {r.status_code}", flush=True)
+            print(f"[REST GEMINI] Trying model {mdl} -> Status: {r.status_code}", flush=True)
             if r.status_code == 200:
                 res_json = r.json()
                 txt = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
@@ -171,7 +153,7 @@ def call_gemini(api_key, biz, history, text, extra_context=""):
                     print(f"[REST GEMINI] Success with {mdl}!", flush=True)
                     return txt
             else:
-                print(f"[REST GEMINI] Response error body: {r.text}", flush=True)
+                print(f"[REST GEMINI] Error {mdl}: {r.text}", flush=True)
         except Exception as e:
             print(f"[REST GEMINI] Exception on {mdl}: {e}", flush=True)
             continue
