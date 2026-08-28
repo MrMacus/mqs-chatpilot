@@ -268,13 +268,19 @@ def generate_reply(client, sender_id, text):
 
 def send_fb_message(client, recipient_id, text):
     token=client["config"].get("page_access_token","")
-    if not token: return False
+    print(f"[SEND] token_len={len(token)} to {recipient_id} text={text[:60]}", flush=True)
+    if not token: 
+        print("[SEND] no token!", flush=True)
+        return False
     url=f"https://graph.facebook.com/v19.0/me/messages?access_token={token}"
     try:
         import requests
         r=requests.post(url, json={"recipient":{"id":recipient_id},"message":{"text":text}}, timeout=10)
+        print(f"[SEND] status {r.status_code} resp {r.text[:300]}", flush=True)
         return r.status_code==200
-    except: return False
+    except Exception as e:
+        print(f"[SEND] exception {e}", flush=True)
+        return False
 
 app = Flask(__name__)
 
@@ -316,24 +322,34 @@ def verify():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data=request.get_json()
+    print(f"[WEBHOOK] Received: {str(data)[:400]}", flush=True)
     if not data: return "no data",400
     if data.get("object")=="page":
         for entry in data.get("entry",[]):
             page_id=entry.get("id","")
+            print(f"[WEBHOOK] page_id={page_id}", flush=True)
             client=get_client_by_page_id(page_id)
             if not client:
-                # fallback to first with matching token or first client
                 client=clients[0] if clients else None
+                print(f"[WEBHOOK] fallback client {client['id'] if client else 'None'}", flush=True)
             if not client: continue
+            print(f"[WEBHOOK] using client {client['id']} token_len={len(client['config'].get('page_access_token',''))}", flush=True)
             for ev in entry.get("messaging",[]):
                 sender=ev.get("sender",{}).get("id")
                 msg=ev.get("message",{})
                 text=msg.get("text","")
-                # skip if from page itself (echo)
-                if not sender or not text: continue
-                # handle
-                reply=generate_reply(client, sender, text)
-                send_fb_message(client, sender, reply)
+                print(f"[WEBHOOK] sender={sender} text={text}", flush=True)
+                if not sender or not text: 
+                    print("[WEBHOOK] skip no sender/text", flush=True)
+                    continue
+                try:
+                    reply=generate_reply(client, sender, text)
+                    print(f"[WEBHOOK] reply={reply[:120]}", flush=True)
+                    ok=send_fb_message(client, sender, reply)
+                    print(f"[WEBHOOK] send result {ok}", flush=True)
+                except Exception as e:
+                    print(f"[WEBHOOK] error {e}", flush=True)
+                    import traceback; traceback.print_exc()
     return "EVENT_RECEIVED",200
 
 if __name__=="__main__":
