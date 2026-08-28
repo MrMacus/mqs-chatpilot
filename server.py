@@ -132,12 +132,11 @@ def call_gemini(api_key, biz, history, text, extra_context=""):
     prompt_lines.append(f"\nLatest customer message: {text}")
     prompt = "\n".join(prompt_lines)
 
-    # Subukan ang mga bagong available models na sinusuportahan ng mga bagong API keys
+    # Gamitin ang rekomendasyon mismo ng Google API logs
     models_to_try = [
+        "gemini-3.6-flash",
         "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-pro-latest"
+        "gemini-2.0-flash"
     ]
     
     for mdl in models_to_try:
