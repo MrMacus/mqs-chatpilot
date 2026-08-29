@@ -101,15 +101,16 @@ load_sessions()
 
 def get_fb_user_name(client, sender_id):
     token = client["config"].get("page_access_token", "")
-    if not token: return "Kaibigan"
+    if not token: return "Mam/Sir"
     url = f"https://graph.facebook.com/v19.0/{sender_id}?fields=first_name&access_token={token}"
     try:
         r = requests.get(url, timeout=5)
         if r.status_code == 200:
-            return r.json().get("first_name", "Kaibigan")
+            name = r.json().get("first_name", "").strip()
+            if name: return name
     except:
         pass
-    return "Kaibigan"
+    return "Mam/Sir"
 
 def send_fb_message(client, recipient_id, text):
     token = client["config"].get("page_access_token","")
