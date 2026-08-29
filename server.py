@@ -99,6 +99,117 @@ def save_sessions():
     except: pass
 load_sessions()
 
+# === GOOGLE CALENDAR HELPERS ===
+def is_calendar_available(client, date_str):
+    biz = client["config"]["business_info"]
+    cal_id = biz.get("google_calendar_id","").strip()
+    api_key = biz.get("google_calendar_api_key","").strip()
+    if not cal_id or not api_key:
+        return None  # no calendar configured, fallback to local
+    # parse date like "dec 2" or "2026-12-02" or "nov 3"
+    import datetime, re
+    # try to parse
+    try:
+        # normalize date to YYYY-MM-DD
+        low = date_str.lower().strip()
+        # try direct YYYY-MM-DD
+        m = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", low)
+        if m:
+            y,mth,d = m.groups()
+            dt = datetime.datetime(int(y), int(mth), int(d))
+        else:
+            # try "dec 2" or "nov 3"
+            months = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
+            for k,v in months.items():
+                mm = re.search(k + r"\s*(\d{1,2})", low)
+                if mm:
+                    d = int(mm.group(1))
+                    # assume current year or next year if past
+                    now = datetime.datetime.now()
+                    y = now.year
+                    # if month already passed, assume next year
+                    if v < now.month or (v==now.month and d < now.day):
+                        y += 1
+                    dt = datetime.datetime(y, v, d)
+                    break
+            else:
+                return None
+        # query calendar for that day
+        start = dt.strftime("%Y-%m-%dT00:00:00Z")
+        end = dt.strftime("%Y-%m-%dT23:59:59Z")
+        import requests, urllib.parse
+        url = f"https://www.googleapis.com/calendar/v3/calendars/{urllib.parse.quote(cal_id)}/events?key={api_key}&timeMin={start}&timeMax={end}&singleEvents=true&maxResults=10"
+        r = requests.get(url, timeout=8)
+        if r.status_code != 200:
+            print(f"[CAL] read fail {r.status_code}: {r.text[:100]}", flush=True)
+            return None
+        events = r.json().get("items", [])
+        # count events that look like bookings (not empty)
+        booked = len([e for e in events if "summary" in e])
+        max_balsas = int(biz.get("number_of_balsas","1") or 1)
+        print(f"[CAL] {date_str} -> {booked}/{max_balsas} booked", flush=True)
+        return booked < max_balsas
+    except Exception as e:
+        print(f"[CAL] error {e}", flush=True)
+        return None
+
+def create_calendar_event(client, date_str, summary, description):
+    biz = client["config"]["business_info"]
+    cal_id = biz.get("google_calendar_id","").strip()
+    api_key = biz.get("google_calendar_api_key","").strip()
+    if not cal_id or not api_key:
+        print("[CAL] no calendar configured for create", flush=True)
+        return False
+    # For now, just log - real create needs OAuth service account.
+    # We will try to create via API key if calendar allows (public writable), but usually needs OAuth.
+    # So we just log and also notify owner to manually add.
+    print(f"[CAL] Would create event {date_str}: {summary} - {description}", flush=True)
+    # Try to create via API key (may fail if not writable, but we try)
+    try:
+        import datetime, re, requests, urllib.parse
+        low = date_str.lower().strip()
+        months = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
+        dt = None
+        m = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", low)
+        if m:
+            y,mth,d = m.groups()
+            dt = datetime.datetime(int(y), int(mth), int(d), 8, 0, 0)
+        else:
+            for k,v in months.items():
+                mm = re.search(k + r"\s*(\d{1,2})", low)
+                if mm:
+                    d = int(mm.group(1))
+                    now = datetime.datetime.now()
+                    y = now.year
+                    if v < now.month: y+=1
+                    dt = datetime.datetime(y, v, d, 8, 0, 0)
+                    break
+        if not dt: return False
+        end = dt.replace(hour=16)
+        payload = {"summary": summary, "description": description, "start": {"dateTime": dt.isoformat()+"Z"}, "end": {"dateTime": end.isoformat()+"Z"}}
+        url = f"https://www.googleapis.com/calendar/v3/calendars/{urllib.parse.quote(cal_id)}/events?key={api_key}"
+        r = requests.post(url, json=payload, timeout=8)
+        print(f"[CAL] create status {r.status_code}: {r.text[:120]}", flush=True)
+        return r.status_code == 200
+    except Exception as e:
+        print(f"[CAL] create error {e}", flush=True)
+        return False
+
+def get_available_balsa_photo(client, date_str):
+    # if multiple balsas, return photo of an available one
+    # For now, just return the main photos link, or parse JSON per balsa
+    biz = client["config"]["business_info"]
+    try:
+        import json as _js
+        photos_json = biz.get("balsa_photos_json","")
+        if photos_json:
+            d = _js.loads(photos_json)
+            # find first available balsa not booked for date - simplified: just return first
+            for k,v in d.items():
+                return v
+    except: pass
+    return biz.get("balsa_photos_url","")
+
 def get_fb_user_name(client, sender_id):
     token = client["config"].get("page_access_token", "")
     if not token: return ""
@@ -140,6 +251,9 @@ def call_ai(api_key, biz, history, text, user_name):
         f"8. **Location / Address Inquiry:** Kapag nagtanong lang ang customer ng 'location po?' o 'saan kayo?', sabihin na kami ay matatagpuan sa {biz.get('location')} at ibigay ang Google Maps link: {biz.get('google_maps_link')}.\n"
         f"9. **No Repetitive Greetings:** DO NOT include repetitive 'Hello po!' or fresh greetings in the middle of an ongoing conversation.\n"
         f"10. **Out of Scope:** If you are unsure or out of scope, politely advise them to call the owner at {biz.get('contact')}.\n"
+        f"11. **AI Disclosure:** Always disclose at the start or when asked: 'I am {biz.get('name')} AI support, I will assist you and the owner will follow up on what we discuss.'\n"
+        f"12. **After-Sale Thank You:** If customer says thank you/salamat after booking or at end, reply warmly: 'You are welcome Mam/Sir {user_name}! Happy to help. Owner will call you at your number to confirm details. Enjoy your trip!' Do NOT ask for date/pax again if already done.\n"
+        f"13. **Food/Buddle:** Food package: {biz.get('food_package','')} Price: {biz.get('food_price','')} Buddle: {biz.get('buddle_price','')}. If asked about food, offer the package/buddle price if available, but say owner will handle food details and confirm.\n"
     )
     contents = []
     for h in history[-8:]:
@@ -150,11 +264,17 @@ def call_ai(api_key, biz, history, text, user_name):
         "contents": contents,
         "system_instruction": {"parts": [{"text": system_instruction}]}
     }
+    last_status = None
     for idx, key in enumerate(keys):
         if idx > 0:
-            delay = 1.0 + (idx * 0.5)
-            print(f"[AI] Smart Backoff {delay}s before trying key {idx+1}/{len(keys)}", flush=True)
-            time.sleep(delay)
+            # Smart Backoff: if previous was 429 quota, go instant (different account quota), if 503 high demand, short 0.4s
+            if last_status == 429:
+                print(f"[AI] Quota hit, instant switch to key {idx+1}/{len(keys)}", flush=True)
+            elif last_status == 503:
+                print(f"[AI] High demand, quick 0.4s before key {idx+1}/{len(keys)}", flush=True)
+                time.sleep(0.4)
+            else:
+                print(f"[AI] Trying key {idx+1}/{len(keys)}", flush=True)
         # try 3.6 up to latest only (no old 2.0/1.5)
         for model in ["gemini-3.6-flash", "gemini-flash-latest"]:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
@@ -204,7 +324,14 @@ def smart_fallback_reply(text, biz, user_name):
             if is_english:
                 return f"Yes, {display}, I hear you — how can I help with your booking?"
             return f"Opo {display}, naalala ko usapan natin — ano pa po maitutulong ko?"
-    elif any(k in t for k in ["pagkain", "bili", "tindahan", "market", "palengke", "ulam", "kain", "food", "eat", "cook"]):
+    elif any(k in t for k in ["pagkain", "bili", "tindahan", "market", "palengke", "ulam", "kain", "food", "eat", "cook", "buddle", "bundle"]):
+        # check if food package exists
+        fp = biz.get('food_package','') or biz.get('food_price','')
+        if fp and "bring your own" not in fp.lower():
+            if is_english:
+                return f"We have a food package/buddle available: {biz.get('food_package','')} Price: {biz.get('food_price','')} Buddle: {biz.get('buddle_price','')}. Owner will handle food details and confirm for you!"
+            return f"Meron po kaming food package/buddle: {biz.get('food_package','')} Presyo: {biz.get('food_price','')} Buddle: {biz.get('buddle_price','')} — si owner na po bahala mag-confirm ng food details sa inyo!"
+        
         if is_english:
             return f"You can bring your own food or buy fresh ingredients from the local market or nearby stores in Calatagan before boarding the raft. Cooking utensils and a grill are already included!"
         return f"May mga malapit na tindahan o palengke naman po sa bayan ng Calatagan kung saan kayo pwedeng mamili ng pagkain at inumin bago sumakay sa balsa."
@@ -228,6 +355,10 @@ def smart_fallback_reply(text, biz, user_name):
         if is_english:
             return f"Depending on where you are coming from, you can head straight to Calatagan, Batangas. Here is the Google Maps link for your trip: {biz.get('google_maps_link')}"
         return f"Depende po kung saan kayo manggagaling, pwede kayong bumiyahe pa-Calatagan, Batangas. Eto po ang Google Maps link para sa inyong gabay: {biz.get('google_maps_link')}"
+    elif any(k in t for k in ["salamat", "thank you", "thanks", "ty ", "maraming salamat"]):
+        if is_english:
+            return f"You are very welcome, {user_name}! I'm {biz.get('name')} AI support — owner will follow up on our conversation and call you to confirm. Enjoy your Day Tour at {biz.get('name')}! 😊"
+        return f"Walang anuman po, {user_name}! Ako po si {biz.get('name')} AI support — i-follow up po kayo ni owner sa napag-usapan natin at tatawagan kayo para ma-confirm. Salamat po! 😊"
     elif any(k in t for k in ["tuloy", "sige book", "magpabook na", "kukunin na namin", "paano magbayad", "proceed", "pay"]):
         if is_english:
             return f"To lock in your schedule, a P1,000 downpayment is required via GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}). Just send the screenshot of your receipt here once paid!"
@@ -269,6 +400,23 @@ def generate_reply(client, sender_id, text):
     
     sess["history"].append(f"Customer: {text}")
     if len(sess["history"]) > 12: sess["history"] = sess["history"][-12:]
+    # photo request -> notify owner and reply with available balsa photo
+    low_text = text.lower()
+    if any(k in low_text for k in ["itsura", "picture", "pic", "photo", "look", "balsa"] ) and any(k in low_text for k in ["available", "available", "makita", "see", "show"]):
+        # notify owner
+        try:
+            biz_tmp = client["config"]["business_info"]
+            send_owner_notif(client, {"customer_name": sess.get("pending_name") or user_name, "contact": sess.get("pending_contact") or "", "date": sess.get("pending_date") or "", "pax": sess.get("pending_pax") or "", "customer_fb_id": sender_id}, "PHOTO_REQUEST")
+        except: pass
+        # reply with photo of available balsa
+        photo = get_available_balsa_photo(client, sess.get("pending_date",""))
+        if photo:
+            return f"Sure po {sess.get('pending_name') or user_name}! Here's the photo of our available balsa for {sess.get('pending_date','your date')}: {photo} 📸 I've also notified the owner to send more pics if needed!"
+    # if AI senses conversation ending and no phone yet, ask for phone for owner
+    if not sess.get("pending_contact") and any(k in low_text for k in ["salamat", "ok na", "confirm", "yes", "oo", "sige", "thank you", "thanks"]):
+        # if we have name/date/pax but no phone, ask for phone at end
+        if sess.get("pending_date") and sess.get("pending_pax") and sess.get("pending_name"):
+            return f"Great! Before we end, may I have your mobile number so the owner can call you to confirm? Para matawagan kayo ni owner directly. 😊"
     # avoid repetitive hello if not start
     _is_first = len(sess["history"]) <= 2
 
@@ -276,7 +424,27 @@ def generate_reply(client, sender_id, text):
     biz = config["business_info"]
     api_key = config.get("ai_api_key", "")
 
-    result = call_ai(api_key, biz, sess["history"], text, user_name)
+    # Check calendar for availability if asked, and add to prompt
+    cal_info = ""
+    if any(k in text.lower() for k in ["available", "avail", "bakante", "free", "dec ", "nov ", "jan ", "feb ", "mar ", "apr ", "may ", "jun ", "jul ", "aug ", "sep ", "oct"]):
+        # extract date
+        import re
+        date_cand = ""
+        for pat in [r"dec\s*\d{1,2}", r"nov\s*\d{1,2}", r"jan\s*\d{1,2}", r"feb\s*\d{1,2}", r"\d{4}-\d{1,2}-\d{1,2}"]:
+            m=re.search(pat, text.lower())
+            if m: date_cand=m.group(0); break
+        if date_cand:
+            avail = is_calendar_available(client, date_cand)
+            if avail is True:
+                cal_info = f" [Calendar: {date_cand} is AVAILABLE ({biz.get('number_of_balsas','1')} balsas, still free)] "
+            elif avail is False:
+                cal_info = f" [Calendar: {date_cand} is FULLY BOOKED] "
+            else:
+                cal_info = f" [Calendar: no data for {date_cand}, use local info] "
+    # append cal info to history for AI
+    if cal_info:
+        sess["history"].append(f"System: {cal_info}")
+    result = call_ai(api_key, biz, sess["history"], text + cal_info, user_name)
     if result:
         sess["history"].append(f"AI: {result}")
         save_sessions()
