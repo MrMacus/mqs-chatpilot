@@ -101,7 +101,7 @@ load_sessions()
 
 def get_fb_user_name(client, sender_id):
     token = client["config"].get("page_access_token", "")
-    if not token: return "Mam/Sir"
+    if not token: return ""
     url = f"https://graph.facebook.com/v19.0/{sender_id}?fields=first_name&access_token={token}"
     try:
         r = requests.get(url, timeout=5)
@@ -110,7 +110,7 @@ def get_fb_user_name(client, sender_id):
             if name: return name
     except:
         pass
-    return "Mam/Sir"
+    return ""
 
 def send_fb_message(client, recipient_id, text):
     token = client["config"].get("page_access_token","")
@@ -194,15 +194,16 @@ def smart_fallback_reply(text, biz, user_name):
             return f"There is no separate entrance fee for the raft! Our Day Tour rate is P3,500 (7AM-4PM, good for {biz.get('capacity')}), which already includes the floating cottage, videoke, grill, and cooking gear. There is only a minimal ecological fee (around P30) at the port/municipality."
         return f"Wala po tayong hiwalay na entrance fee sa balsa! Ang meron po ay ang P3,500 Day Tour rate natin (7AM-4PM, good for {biz.get('capacity')}) na kasama na ang floating cottage, videoke, ihawan, life vest, at lutuan. May hiwalay lang po na ecological fee (mga P30) sa port o munisipyo."
     elif any(k in t for k in ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]):
+        display = user_name if user_name else "Mam/Sir"
         # avoid repetitive greetings in middle of conversation
         if len(t.strip()) < 12:
             if is_english:
-                return f"Hello, {user_name}! Welcome to {biz.get('name')} in {biz.get('location')}. How can I help you today?"
-            return f"Hello po, {user_name}! Welcome sa {biz.get('name')} sa {biz.get('location')}. Ano po ang magagawa ko para sa inyo ngayon?"
+                return f"Hello, {display}! Welcome to {biz.get('name')} in {biz.get('location')}. How can I help you today?"
+            return f"Hello po {display}! Welcome sa {biz.get('name')} sa {biz.get('location')}. Ano po ang magagawa ko para sa inyo ngayon?"
         else:
             if is_english:
-                return f"Yes, {user_name}, I hear you — how can I help with your booking?"
-            return f"Opo {user_name}, naalala ko usapan natin — ano pa po maitutulong ko?"
+                return f"Yes, {display}, I hear you — how can I help with your booking?"
+            return f"Opo {display}, naalala ko usapan natin — ano pa po maitutulong ko?"
     elif any(k in t for k in ["pagkain", "bili", "tindahan", "market", "palengke", "ulam", "kain", "food", "eat", "cook"]):
         if is_english:
             return f"You can bring your own food or buy fresh ingredients from the local market or nearby stores in Calatagan before boarding the raft. Cooking utensils and a grill are already included!"
@@ -238,7 +239,10 @@ def smart_fallback_reply(text, biz, user_name):
 
 def generate_reply(client, sender_id, text):
     if sender_id not in sessions:
-        user_name = get_fb_user_name(client, sender_id)
+        user_name = get_fb_user_name(client, sender_id) or "Mam/Sir"
+        # ensure display is Mam/Sir + name if name exists
+        if user_name and user_name != "Mam/Sir":
+            user_name = f"Mam/Sir {user_name}"
         sessions[sender_id] = {"history": [], "user_name": user_name}
         # try restore from last inquiry if exists (for next-day confirm)
         try:
