@@ -87,7 +87,17 @@ def get_client_by_page_id(pid):
 sessions = {}
 seen_message_ids = {}
 
-def load_sessions():
+def load_sessions()
+# === AUTO-REMINDER LOOP (placeholder) ===
+import threading as _th2
+def _reminder():
+    import time
+    while True:
+        time.sleep(3600)
+        print('[REMINDER] tick', flush=True)
+_th2.Thread(target=_reminder, daemon=True).start()
+print('[INIT] Reminder loop started', flush=True)
+:
     global sessions
     if os.path.exists(SESSIONS_PATH):
         try: sessions = json.load(open(SESSIONS_PATH, encoding="utf-8"))
@@ -98,6 +108,16 @@ def save_sessions():
             json.dump(sessions, f, ensure_ascii=False, indent=2)
     except: pass
 load_sessions()
+# === AUTO-REMINDER LOOP (placeholder) ===
+import threading as _th2
+def _reminder():
+    import time
+    while True:
+        time.sleep(3600)
+        print('[REMINDER] tick', flush=True)
+_th2.Thread(target=_reminder, daemon=True).start()
+print('[INIT] Reminder loop started', flush=True)
+
 
 # === GOOGLE CALENDAR HELPERS ===
 def is_calendar_available(client, date_str):
@@ -252,7 +272,6 @@ def call_ai(api_key, biz, history, text, user_name):
         f"9. **No Repetitive Greetings:** DO NOT include repetitive 'Hello po!' or fresh greetings in the middle of an ongoing conversation.\n"
         f"10. **Out of Scope:** If you are unsure or out of scope, politely advise them to call the owner at {biz.get('contact')}.\n"
         f"11. **AI Disclosure:** Always disclose at the start or when asked: 'I am {biz.get('name')} AI support, I will assist you and the owner will follow up on what we discuss.'\n"
-        f"12. **After-Sale Thank You:** If customer says thank you/salamat after booking or at end, reply warmly: 'You are welcome Mam/Sir {user_name}! Happy to help. Owner will call you at your number to confirm details. Enjoy your trip!' Do NOT ask for date/pax again if already done.\n"
         f"13. **Food/Buddle:** Food package: {biz.get('food_package','')} Price: {biz.get('food_price','')} Buddle: {biz.get('buddle_price','')}. If asked about food, offer the package/buddle price if available, but say owner will handle food details and confirm.\n"
     )
     contents = []
@@ -355,10 +374,6 @@ def smart_fallback_reply(text, biz, user_name):
         if is_english:
             return f"Depending on where you are coming from, you can head straight to Calatagan, Batangas. Here is the Google Maps link for your trip: {biz.get('google_maps_link')}"
         return f"Depende po kung saan kayo manggagaling, pwede kayong bumiyahe pa-Calatagan, Batangas. Eto po ang Google Maps link para sa inyong gabay: {biz.get('google_maps_link')}"
-    elif any(k in t for k in ["salamat", "thank you", "thanks", "ty ", "maraming salamat"]):
-        if is_english:
-            return f"You are very welcome, {user_name}! I'm {biz.get('name')} AI support — owner will follow up on our conversation and call you to confirm. Enjoy your Day Tour at {biz.get('name')}! 😊"
-        return f"Walang anuman po, {user_name}! Ako po si {biz.get('name')} AI support — i-follow up po kayo ni owner sa napag-usapan natin at tatawagan kayo para ma-confirm. Salamat po! 😊"
     elif any(k in t for k in ["tuloy", "sige book", "magpabook na", "kukunin na namin", "paano magbayad", "proceed", "pay"]):
         if is_english:
             return f"To lock in your schedule, a P1,000 downpayment is required via GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}). Just send the screenshot of your receipt here once paid!"
