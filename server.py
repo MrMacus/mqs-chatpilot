@@ -154,7 +154,7 @@ def call_ai(api_key, biz, history, text, user_name):
             delay = 1.0 + (idx * 0.5)
             print(f"[AI] Smart Backoff {delay}s before trying key {idx+1}/{len(keys)}", flush=True)
             time.sleep(delay)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={key}"
         try:
             r = requests.post(url, json=payload, timeout=10)
             if r.status_code == 200:
