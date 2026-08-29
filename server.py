@@ -29,9 +29,19 @@ def load_clients():
     return []
 
 _env_page = os.environ.get("PAGE_TOKEN") or os.environ.get("PAGE_ACCESS_TOKEN")
-_env_key = "sk-df1543af0a48b86d-664eae-f73acc9e"
+# support GEMINI_KEY as comma-separated or GEMINI_KEY_1, _2, _3...
+_env_keys = []
+for _i in range(1, 10):
+    _k = os.environ.get(f"GEMINI_KEY_{_i}")
+    if _k: _env_keys.append(_k.strip())
+_main = os.environ.get("GEMINI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
+if _main:
+    _env_keys.extend([k.strip() for k in _main.split(",") if k.strip()])
+# fallback to old hardcoded only if no env at all (for local testing)
+_env_key = ",".join(_env_keys) if _env_keys else "sk-df1543af0a48b86d-664eae-f73acc9e"
 _env_verify = os.environ.get("VERIFY_TOKEN")
 _env_pid = os.environ.get("PAGE_ID")
+print(f"[INIT] GEMINI keys loaded: {len(_env_keys)} key(s), first len={len(_env_keys[0]) if _env_keys else 0}", flush=True)
 
 clients = load_clients()
 if not clients and _env_page:
