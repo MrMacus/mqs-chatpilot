@@ -1,5 +1,5 @@
 """
-MQS ChatPilot - Cloud Webhook Server with Gemini AI API Rotation & Backoff Delay
+MQS ChatPilot - Cloud Webhook Server with Gemini AI Integration
 Deployed to Render: https://mqs-chatpilot.onrender.com
 """
 import os, json, re, time, random
@@ -28,24 +28,8 @@ def load_clients():
         except: pass
     return []
 
-# Multi-API Key Setup (Supports GEMINI_KEY, GEMINI_KEY_1 through GEMINI_KEY_9, etc.)
-def load_api_keys():
-    keys = []
-    env_single = os.environ.get("GEMINI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("AI_API_KEY") or ""
-    if env_single:
-        for k in env_single.split(","):
-            if k.strip(): keys.append(k.strip())
-    
-    for i in range(1, 10):
-        k = os.environ.get(f"GEMINI_KEY_{i}") or os.environ.get(f"AI_API_KEY_{i}")
-        if k and k.strip() and k.strip() not in keys:
-            keys.append(k.strip())
-            
-    return keys
-
-api_keys_pool = load_api_keys()
-
 _env_page = os.environ.get("PAGE_TOKEN") or os.environ.get("PAGE_ACCESS_TOKEN")
+_env_key = "sk-df1543af0a48b86d-664eae-f73acc9e"
 _env_verify = os.environ.get("VERIFY_TOKEN")
 _env_pid = os.environ.get("PAGE_ID")
 
@@ -57,7 +41,7 @@ if not clients and _env_page:
         "config": {
             "page_access_token": _env_page,
             "verify_token": _env_verify or "mqs_verify_2026",
-            "ai_api_key": api_keys_pool[0] if api_keys_pool else "",
+            "ai_api_key": _env_key,
             "port": 5000,
             "business_info": {
                 "name": "Balsa ni Mac", "location": "Calatagan, Batangas",
@@ -65,7 +49,6 @@ if not clients and _env_page:
                 "capacity": "15-20 pax",
                 "inclusions": "Floating cottage, videoke, ihawan, life vest, lutuan",
                 "contact": "09123456789",
-                "owner_name": "Mac David Bernal",
                 "gcash_number": "09123456789", "gcash_name": "Mac David Bernal",
                 "downpayment": "1000",
                 "google_maps_link": "https://maps.app.goo.gl/DITO",
@@ -83,8 +66,7 @@ elif _env_page and clients:
     if _env_pid: clients[0]["page_id"] = _env_pid
 
 for c in clients:
-    if api_keys_pool:
-        c["config"]["ai_api_key"] = api_keys_pool[0]
+    c["config"]["ai_api_key"] = _env_key
 
 def get_client_by_page_id(pid):
     if not pid: return None
@@ -109,19 +91,15 @@ load_sessions()
 
 def get_fb_user_name(client, sender_id):
     token = client["config"].get("page_access_token", "")
-    if not token: return "Sir/Ma'am"
-    url = f"https://graph.facebook.com/v19.0/{sender_id}?fields=first_name,gender&access_token={token}"
+    if not token: return "Kaibigan"
+    url = f"https://graph.facebook.com/v19.0/{sender_id}?fields=first_name&access_token={token}"
     try:
         r = requests.get(url, timeout=5)
         if r.status_code == 200:
-            data = r.json()
-            fname = data.get("first_name", "Sir/Ma'am")
-            gender = data.get("gender", "")
-            title = "Ma'am" if gender == "female" else "Sir"
-            return f"{title} {fname}"
+            return r.json().get("first_name", "Kaibigan")
     except:
         pass
-    return "Sir/Ma'am"
+    return "Kaibigan"
 
 def send_fb_message(client, recipient_id, text):
     token = client["config"].get("page_access_token","")
@@ -133,88 +111,106 @@ def send_fb_message(client, recipient_id, text):
     except:
         return False
 
-def call_ai_with_rotation(biz, history, text, user_name):
-    keys = api_keys_pool if api_keys_pool else [os.environ.get("GEMINI_KEY", "")]
-    if not keys or not keys[0]: return None
-    
+def call_ai(api_key, biz, history, text, user_name):
+    if not api_key: return None
+    keys = [k.strip() for k in api_key.split(",") if k.strip()]
+    if not keys: return None
     system_instruction = (
-        f"You are the professional, polite, and cheerful chat assistant of {biz.get('name')} located in {biz.get('location')}. "
-        f"The user's addressing title and name is {user_name} (e.g., Sir Mac or Ma'am Anna). Always address them formally using their respectful title and name.\n"
+        f"You are the friendly and cheerful chat assistant of {biz.get('name')} located in {biz.get('location')}. "
+        f"The user's name is {user_name}. "
         f"Rules:\n"
-        f"1. **Language Matching:** Match the language used by the customer (Tagalog/Taglish/English).\n"
-        f"2. **Professional Greetings:** Always address the customer properly using their title and name ({user_name}) when greeting.\n"
-        f"3. **Direct & Specific Answers (STRICT):** Sagutin LANG ang eksaktong tinatanong ng customer. HUWAG magsasama ng presyo, oras, o inclusions kung hindi naman tinatanong.\n"
+        f"1. **Language Matching:** Match the language used by the customer. If they speak Tagalog/Taglish, reply in Tagalog/Taglish. If they speak English, reply in fluent English.\n"
+        f"2. **Greetings:** If it's the start of the conversation or they say hi/hello, greet them properly using their name ({user_name}) and ask how you can help.\n"
+        f"3. **Direct & Specific Answers (STRICT):** Sagutin LANG ang eksaktong tinatanong ng customer. HUWAG magsasama ng presyo, oras, o inclusions kung ang tinatanong lang ay kung ilan ang kasya (capacity). Halimbawa, kung tinanong kung ilan ang kasya, sabihin lang na good for {biz.get('capacity')} at huwag nang magbanggit ng rate o oras hangga't hindi tinatanong.\n"
         f"4. **No Entrance Fee:** Walang hiwalay na entrance fee sa balsa. Ang meron ay ang package rate na P{biz.get('price_day_amount')} para sa Day Tour (7:00 AM - 4:00 PM) na kasama na ang {biz.get('inclusions')}. May hiwalay lang na ecological fee (mga P30) sa port/munisipyo.\n"
-        f"5. **Unknown / Out of Scope Inquiries (STRICT):** Kung hindi mo alam ang sagot o wala sa iyong kaalaman bilang AI (tulad ng mga espesyal na request, aso/pets, o personal na patakaran), sabihin nang magalang na hindi mo alam, at ibigay agad ang pangalan ng owner na si {biz.get('owner_name', 'Mac David Bernal')} kasama ang kanyang contact number ({biz.get('contact')}).\n"
-        f"6. **No Premature Downpayment:** DO NOT mention downpayment or GCash when they are asking about capacity, fees, rates, dates, food, parking, pets, or owner contact details.\n"
-        f"7. **Booking Confirmation Only:** Only mention the P{biz.get('downpayment')} downpayment and GCash details ({biz.get('gcash_number')} - {biz.get('gcash_name')}) at the very end when they explicitly confirm they want to book.\n"
-        f"8. **Day Tour Only:** Day Tour only (7:00 AM - 4:00 PM). No overnight stay.\n"
-        f"9. **Location & Parking Inquiries:** Kapag tinanong ang location, ibigay ang {biz.get('location')} at Google Maps link: {biz.get('google_maps_link')}. Sa parking, sabihing mayroon namang pwedeng maparadahan malapit sa port.\n"
-        f"10. **No Repetitive Greetings:** DO NOT include repetitive greetings in the middle of an ongoing conversation.\n"
+        f"5. **No Premature Downpayment:** DO NOT mention downpayment or GCash when they are just asking about capacity, entrance fees, rates, availability dates, inclusions, food, or headcount. Answer their specific questions directly first.\n"
+        f"6. **Booking Confirmation Only:** Only mention the P{biz.get('downpayment')} downpayment and GCash details ({biz.get('gcash_number')} - {biz.get('gcash_name')}) at the very end when they explicitly confirm they want to book.\n"
+        f"7. **Day Tour Only:** Day Tour only (7:00 AM - 4:00 PM). No overnight stay.\n"
+        f"8. **Location / Address Inquiry:** Kapag nagtanong lang ang customer ng 'location po?' o 'saan kayo?', sabihin na kami ay matatagpuan sa {biz.get('location')} at ibigay ang Google Maps link: {biz.get('google_maps_link')}.\n"
+        f"9. **No Repetitive Greetings:** DO NOT include repetitive 'Hello po!' or fresh greetings in the middle of an ongoing conversation.\n"
+        f"10. **Out of Scope:** If you are unsure or out of scope, politely advise them to call the owner at {biz.get('contact')}.\n"
     )
-    
     contents = []
     for h in history[-8:]:
         role = "user" if "Customer:" in h else "model"
         msg_text = h.split(": ", 1)[1] if ": " in h else h
         contents.append({"role": role, "parts": [{"text": msg_text}]})
-    
     payload = {
         "contents": contents,
         "system_instruction": {"parts": [{"text": system_instruction}]}
     }
-    
     for idx, key in enumerate(keys):
-        if not key: continue
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={key}"
+        if idx > 0:
+            delay = 1.0 + (idx * 0.5)
+            print(f"[AI] Smart Backoff {delay}s before trying key {idx+1}/{len(keys)}", flush=True)
+            time.sleep(delay)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
         try:
-            r = requests.post(url, json=payload, timeout=8)
+            r = requests.post(url, json=payload, timeout=10)
             if r.status_code == 200:
                 res_json = r.json()
                 candidates = res_json.get("candidates", [])
                 if candidates:
                     parts = candidates[0].get("content", {}).get("parts", [])
                     if parts:
-                        return parts[0].get("text", "").strip()
-            else:
-                print(f"[API ROTATION] Key index {idx} failed. Backing off...", flush=True)
-                time.sleep(1.0)
+                        txt = parts[0].get("text", "").strip()
+                        if txt:
+                            print(f"[AI] key {idx+1} success", flush=True)
+                            return txt
+            print(f"[AI] key {idx+1} failed {r.status_code}: {r.text[:120]}", flush=True)
         except Exception as e:
-            print(f"[API ROTATION] Exception with key index {idx}: {e}. Backing off...", flush=True)
-            time.sleep(1.0)
-            
+            print(f"[AI ERROR] key {idx+1} {e}", flush=True)
+            continue
     return None
 
 def smart_fallback_reply(text, biz, user_name):
     t = text.lower()
-    if any(k in t for k in ["number", "owner", "may-ari", "tawagan", "call", "contact", "cp", "telepono"]):
-        return f"Maaari ninyong tawagan o i-text nang direkta, {user_name}, ang ating owner na si {biz.get('owner_name', 'Mac David Bernal')} sa numerong {biz.get('contact')} para sa iba pang katanungan."
-    elif any(k in t for k in ["aso", "dog", "pet", "alaga", "pusa", "cat", "bata", "kids", "child"]):
-        return f"Pasensya na po, {user_name}, hindi ko po eksaktong alam ang patakaran ukol dyan dahil kulang ang aking kaalaman bilang AI. Maaari niyo pong direktang tawagan ang owner na si {biz.get('owner_name', 'Mac David Bernal')} sa {biz.get('contact')}."
-    elif any(k in t for k in ["parking", "parada", "kotse", "car", "sasakyan"]):
-        return f"Yes po, {user_name}, mayroon namang pwedeng maparadahan para sa mga sasakyan malapit sa aming jump-off point o port."
-    elif any(k in t for k in ["ilan", "kasya", "capacity", "pax", "tao", "fit", "how many"]):
-        return f"Ang atin pong balsa ay kasya ang hanggang {biz.get('capacity')} katao, {user_name}!"
+    is_english = any(w in t for w in ["hi", "hello", "hey", "how", "what", "is", "are", "can", "rate", "price", "food", "location", "book", "date", "fee", "entrance", "capacity", "fit", "pax", "many"])
+
+    if any(k in t for k in ["ilan", "kasya", "capacity", "pax", "tao", "fit", "how many"]):
+        if is_english:
+            return f"Good for {biz.get('capacity')} po." # Keep it strictly direct
+        return f"Good for {biz.get('capacity')} po ang balsa natin."
     elif any(k in t for k in ["entrance", "fee", "bayad sa pinto", "entrancefee", "entrance fee"]):
-        return f"Wala po tayong hiwalay na entrance fee sa balsa, {user_name}! Ang meron po ay ang P3,500 Day Tour rate natin (7AM-4PM, good for {biz.get('capacity')}) na kasama na ang floating cottage, videoke, ihawan, life vest, at lutuan. May ecological fee lang po na mga P30 sa port."
+        if is_english:
+            return f"There is no separate entrance fee for the raft! Our Day Tour rate is P3,500 (7AM-4PM, good for {biz.get('capacity')}), which already includes the floating cottage, videoke, grill, and cooking gear. There is only a minimal ecological fee (around P30) at the port/municipality."
+        return f"Wala po tayong hiwalay na entrance fee sa balsa! Ang meron po ay ang P3,500 Day Tour rate natin (7AM-4PM, good for {biz.get('capacity')}) na kasama na ang floating cottage, videoke, ihawan, life vest, at lutuan. May hiwalay lang po na ecological fee (mga P30) sa port o munisipyo."
     elif any(k in t for k in ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]):
-        return f"Hello po, {user_name}! Welcome sa {biz.get('name')} dito sa {biz.get('location')}. Paano ko po kayo matutulungan ngayon?"
+        if is_english:
+            return f"Hello, {user_name}! Welcome to {biz.get('name')} in {biz.get('location')}. How can I help you today?"
+        return f"Hello po, {user_name}! Welcome sa {biz.get('name')} sa {biz.get('location')}. Ano po ang magagawa ko para sa inyo ngayon?"
     elif any(k in t for k in ["pagkain", "bili", "tindahan", "market", "palengke", "ulam", "kain", "food", "eat", "cook"]):
-        return f"May mga malapit na tindahan o palengke naman po sa bayan ng Calatagan kung saan kayo pwedeng mamili ng pagkain at inumin bago sumakay, {user_name}."
+        if is_english:
+            return f"You can bring your own food or buy fresh ingredients from the local market or nearby stores in Calatagan before boarding the raft. Cooking utensils and a grill are already included!"
+        return f"May mga malapit na tindahan o palengke naman po sa bayan ng Calatagan kung saan kayo pwedeng mamili ng pagkain at inumin bago sumakay sa balsa."
     elif any(k in t for k in ["dec", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "petsa", "date", "araw", "available", "pwede ba", "when"]):
-        return f"Yes po, available po ang mag-inquire at mag-check ng schedule para sa petsang iyan, {user_name}! P3,500 po ang Day Tour rate natin (7AM-4PM). Gusto niyo na po bang ituloy ang pagpabook?"
+        if is_english:
+            return f"Yes, you can inquire and check availability for that date! Our Day Tour rate is P3,500 (7AM-4PM), good for {biz.get('capacity')}. Would you like to proceed with booking?"
+        return f"Yes po, available po ang mag-inquire at mag-check ng schedule para sa petsang iyan! P3,500 po ang Day Tour rate natin (7AM-4PM) good for {biz.get('capacity')}. Gusto niyo na po bang ituloy ang pagpabook?"
     elif any(k in t for k in ["magkano", "price", "rate", "pila", "balsa", "tour", "fee", "cost"]):
-        return f"P3,500 po ang rate namin para sa Day Tour (7:00 AM - 4:00 PM), {user_name}. Kasama na po dyan ang floating cottage, videoke, ihawan, life vest, at lutuan (good for {biz.get('capacity')})."
+        if is_english:
+            return f"Our Day Tour rate is P3,500 (7:00 AM - 4:00 PM). It includes the floating cottage, videoke, grill, life vests, and cooking equipment (good for {biz.get('capacity')})."
+        return f"P3,500 po ang rate namin para sa Day Tour (7:00 AM - 4:00 PM). Kasama na po dyan ang floating cottage, videoke, ihawan, life vest, at lutuan (good for {biz.get('capacity')})."
     elif any(k in t for k in ["overnight", "gabi", "matulog", "sleep"]):
-        return f"Day Tour lang po kami (7AM hanggang 4PM) at wala pong overnight stay, {user_name}."
+        if is_english:
+            return f"We only offer Day Tours (7:00 AM - 4:00 PM). We do not have overnight stays."
+        return f"Day Tour lang po kami (7AM hanggang 4PM) at wala pong overnight stay."
     elif any(k in t for k in ["saan", "location", "address", "map", "where"]):
-        return f"Kami po ay matatagpuan sa {biz.get('location')}, {user_name}. Narito po ang ating Google Maps link: {biz.get('google_maps_link')}"
+        if is_english:
+            return f"We are located in {biz.get('location')}. Here is our Google Maps link to guide you to our place: {biz.get('google_maps_link')}"
+        return f"Kami po ay matatagpuan sa {biz.get('location')}. Narito po ang ating Google Maps link para sa inyong gabay papunta sa amin: {biz.get('google_maps_link')}"
     elif any(k in t for k in ["galing", "manggagaling", "route", "way", "paano pumunta"]):
-        return f"Depende po kung saan kayo manggagaling, {user_name}. Eto po ang ating Google Maps link para sa inyong gabay papunta sa amin: {biz.get('google_maps_link')}"
+        if is_english:
+            return f"Depending on where you are coming from, you can head straight to Calatagan, Batangas. Here is the Google Maps link for your trip: {biz.get('google_maps_link')}"
+        return f"Depende po kung saan kayo manggagaling, pwede kayong bumiyahe pa-Calatagan, Batangas. Eto po ang Google Maps link para sa inyong gabay: {biz.get('google_maps_link')}"
     elif any(k in t for k in ["tuloy", "sige book", "magpabook na", "kukunin na namin", "paano magbayad", "proceed", "pay"]):
-        return f"Para ma-lock po ang schedule ninyo, {user_name}, kailangan lang ng P1,000 downpayment sa GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}). I-send lang dito ang screenshot ng resibo pagkatapos!"
+        if is_english:
+            return f"To lock in your schedule, a P1,000 downpayment is required via GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}). Just send the screenshot of your receipt here once paid!"
+        return f"Para ma-lock po ang schedule ninyo, kailangan lang ng P1,000 downpayment sa GCash ({biz.get('gcash_number')} - {biz.get('gcash_name')}). I-send lang dito ang screenshot ng resibo pagkatapos!"
     else:
-        return f"Paumanhin, {user_name}, ngunit hindi ko po alam ang detalyeng iyan. Maaari ninyong tawagan nang direkta ang owner na si {biz.get('owner_name', 'Mac David Bernal')} sa numerong {biz.get('contact')}."
+        if is_english:
+            return f"Is there anything else you'd like to know? You can also contact our owner at {biz.get('contact')} for more details."
+        return f"Tungkol saan po kaya ang nais niyo pang malaman? Pwede niyo pong tawagan ang aming owner sa {biz.get('contact')} para sa iba pang detalye."
 
 def generate_reply(client, sender_id, text):
     if sender_id not in sessions:
@@ -222,15 +218,16 @@ def generate_reply(client, sender_id, text):
         sessions[sender_id] = {"history": [], "user_name": user_name}
     
     sess = sessions[sender_id]
-    user_name = sess.get("user_name", "Sir/Ma'am")
+    user_name = sess.get("user_name", "Kaibigan")
     
     sess["history"].append(f"Customer: {text}")
     if len(sess["history"]) > 12: sess["history"] = sess["history"][-12:]
 
     config = client["config"]
     biz = config["business_info"]
+    api_key = config.get("ai_api_key", "")
 
-    result = call_ai_with_rotation(biz, sess["history"], text, user_name)
+    result = call_ai(api_key, biz, sess["history"], text, user_name)
     if result:
         sess["history"].append(f"AI: {result}")
         save_sessions()
@@ -244,7 +241,7 @@ def generate_reply(client, sender_id, text):
 app = Flask(__name__)
 
 @app.route("/")
-def home(): return jsonify({"status":"MQS ChatPilot Cloud Live - Formal Title & Rotation","keys_loaded":len(api_keys_pool)})
+def home(): return jsonify({"status":"MQS ChatPilot Cloud Live with Gemini","clients":len(clients)})
 
 @app.route("/health")
 def health(): return jsonify({"ok":True})
