@@ -131,7 +131,7 @@ def call_ai(api_key, biz, history, text, user_name):
         f"The user's name is {user_name}. "
         f"Rules:\n"
         f"1. **Language Matching:** Match the language used by the customer. If they speak Tagalog/Taglish, reply in Tagalog/Taglish. If they speak English, reply in fluent English.\n"
-        f"2. **Greetings:** If it's the start of the conversation or they say hi/hello, greet them properly using their name ({user_name}) and ask how you can help.\n"
+        f"2. **Greetings:** ONLY greet with 'Hello Mam/Sir {user_name}' if it is the VERY FIRST message (history length 1-2). In the middle of conversation, DO NOT greet again, just answer directly.\n"
         f"3. **Direct & Specific Answers (STRICT):** Sagutin LANG ang eksaktong tinatanong ng customer. HUWAG magsasama ng presyo, oras, o inclusions kung ang tinatanong lang ay kung ilan ang kasya (capacity). Halimbawa, kung tinanong kung ilan ang kasya, sabihin lang na good for {biz.get('capacity')} at huwag nang magbanggit ng rate o oras hangga't hindi tinatanong.\n"
         f"4. **No Entrance Fee:** Walang hiwalay na entrance fee sa balsa. Ang meron ay ang package rate na P{biz.get('price_day_amount')} para sa Day Tour (7:00 AM - 4:00 PM) na kasama na ang {biz.get('inclusions')}. May hiwalay lang na ecological fee (mga P30) sa port/munisipyo.\n"
         f"5. **No Premature Downpayment:** DO NOT mention downpayment or GCash when they are just asking about capacity, entrance fees, rates, availability dates, inclusions, food, or headcount. Answer their specific questions directly first.\n"
@@ -155,23 +155,30 @@ def call_ai(api_key, biz, history, text, user_name):
             delay = 1.0 + (idx * 0.5)
             print(f"[AI] Smart Backoff {delay}s before trying key {idx+1}/{len(keys)}", flush=True)
             time.sleep(delay)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={key}"
-        try:
-            r = requests.post(url, json=payload, timeout=10)
-            if r.status_code == 200:
-                res_json = r.json()
-                candidates = res_json.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts:
-                        txt = parts[0].get("text", "").strip()
-                        if txt:
-                            print(f"[AI] key {idx+1} success", flush=True)
-                            return txt
-            print(f"[AI] key {idx+1} failed {r.status_code}: {r.text[:120]}", flush=True)
-        except Exception as e:
-            print(f"[AI ERROR] key {idx+1} {e}", flush=True)
-            continue
+        # try 3.6 up to latest only (no old 2.0/1.5)
+        for model in ["gemini-3.6-flash", "gemini-flash-latest"]:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+            try:
+                r = requests.post(url, json=payload, timeout=12)
+                if r.status_code == 200:
+                    res_json = r.json()
+                    candidates = res_json.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts:
+                            txt = parts[0].get("text", "").strip()
+                            if txt:
+                                print(f"[AI] key {idx+1} model {model} success", flush=True)
+                                return txt
+                # if 503 high demand, try next model before next key
+                if r.status_code == 503:
+                    print(f"[AI] key {idx+1} model {model} 503 high demand, trying next model", flush=True)
+                    continue
+                print(f"[AI] key {idx+1} model {model} failed {r.status_code}: {r.text[:100]}", flush=True)
+                break  # for non-503, break to next key (don't try other models if 400 etc)
+            except Exception as e:
+                print(f"[AI ERROR] key {idx+1} model {model} {e}", flush=True)
+                continue
     return None
 
 def smart_fallback_reply(text, biz, user_name):
@@ -187,9 +194,15 @@ def smart_fallback_reply(text, biz, user_name):
             return f"There is no separate entrance fee for the raft! Our Day Tour rate is P3,500 (7AM-4PM, good for {biz.get('capacity')}), which already includes the floating cottage, videoke, grill, and cooking gear. There is only a minimal ecological fee (around P30) at the port/municipality."
         return f"Wala po tayong hiwalay na entrance fee sa balsa! Ang meron po ay ang P3,500 Day Tour rate natin (7AM-4PM, good for {biz.get('capacity')}) na kasama na ang floating cottage, videoke, ihawan, life vest, at lutuan. May hiwalay lang po na ecological fee (mga P30) sa port o munisipyo."
     elif any(k in t for k in ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]):
-        if is_english:
-            return f"Hello, {user_name}! Welcome to {biz.get('name')} in {biz.get('location')}. How can I help you today?"
-        return f"Hello po, {user_name}! Welcome sa {biz.get('name')} sa {biz.get('location')}. Ano po ang magagawa ko para sa inyo ngayon?"
+        # avoid repetitive greetings in middle of conversation
+        if len(t.strip()) < 12:
+            if is_english:
+                return f"Hello, {user_name}! Welcome to {biz.get('name')} in {biz.get('location')}. How can I help you today?"
+            return f"Hello po, {user_name}! Welcome sa {biz.get('name')} sa {biz.get('location')}. Ano po ang magagawa ko para sa inyo ngayon?"
+        else:
+            if is_english:
+                return f"Yes, {user_name}, I hear you — how can I help with your booking?"
+            return f"Opo {user_name}, naalala ko usapan natin — ano pa po maitutulong ko?"
     elif any(k in t for k in ["pagkain", "bili", "tindahan", "market", "palengke", "ulam", "kain", "food", "eat", "cook"]):
         if is_english:
             return f"You can bring your own food or buy fresh ingredients from the local market or nearby stores in Calatagan before boarding the raft. Cooking utensils and a grill are already included!"
@@ -227,12 +240,33 @@ def generate_reply(client, sender_id, text):
     if sender_id not in sessions:
         user_name = get_fb_user_name(client, sender_id)
         sessions[sender_id] = {"history": [], "user_name": user_name}
+        # try restore from last inquiry if exists (for next-day confirm)
+        try:
+            from datetime import datetime as _dt
+            bookings = load_bookings(client["id"]) if "load_bookings" in globals() else []
+            for b in reversed(bookings):
+                if b.get("customer_fb_id")==sender_id and b.get("status") in ["INQUIRY","PENDING_PAYMENT"]:
+                    # restore pending info if session empty
+                    sessions[sender_id]["pending_date"] = b.get("date","")
+                    sessions[sender_id]["pending_pax"] = b.get("pax","")
+                    sessions[sender_id]["pending_name"] = b.get("customer_name","")
+                    sessions[sender_id]["pending_contact"] = b.get("contact","")
+                    sessions[sender_id]["inquiry_id"] = b.get("id","")
+                    sessions[sender_id]["awaiting_confirm"] = (b.get("status")=="INQUIRY")
+                    print(f"[RESTORE] Restored {b['id']} for {sender_id}", flush=True)
+                    break
+        except: pass
     
     sess = sessions[sender_id]
-    user_name = sess.get("user_name", "Kaibigan")
+    # ensure required keys exist for old sessions
+    for _k in ["pending_date","pending_pax","pending_tour","pending_name","pending_contact","pending_ref","awaiting_confirm","inquiry_id"]:
+        sess.setdefault(_k, "" if _k!="pending_tour" else "Day Tour")
+    user_name = sess.get("user_name", "Mam/Sir")
     
     sess["history"].append(f"Customer: {text}")
     if len(sess["history"]) > 12: sess["history"] = sess["history"][-12:]
+    # avoid repetitive hello if not start
+    _is_first = len(sess["history"]) <= 2
 
     config = client["config"]
     biz = config["business_info"]
