@@ -851,8 +851,35 @@ app = Flask(__name__, static_folder="website", static_url_path="")
 app.secret_key = os.environ.get("FLASK_SECRET", "mqs_secret_2026_change_in_prod")
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-# === USERS / AUTH HELPERS (trial 1 day, hidden admin) ===
+# === USERS / AUTH HELPERS (trial 1 day, hidden admin) — Supabase persistent, fallback to file ===
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()  # anon key
+SUPABASE_TABLE = "mqs_users"
+
+def _supabase_enabled():
+    return bool(SUPABASE_URL and SUPABASE_KEY)
+
+def _sb_headers():
+    return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"}
+
 def load_users():
+    # try Supabase first
+    if _supabase_enabled():
+        try:
+            r = requests.get(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?select=*", headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}, timeout=8)
+            if r.status_code == 200:
+                data = r.json()
+                # supabase stores business/vacation as jsonb, ensure they are dict
+                out = []
+                for u in data:
+                    # normalize: supabase may return id as uuid, map to our id field
+                    u["id"] = u.get("id") or u.get("user_id") or ""
+                    out.append(u)
+                return out
+            else:
+                print(f"[SB] load fail {r.status_code}: {r.text[:100]}", flush=True)
+        except Exception as e:
+            print(f"[SB] load error {e}", flush=True)
     if os.path.exists(USERS_PATH):
         try:
             with open(USERS_PATH, "r", encoding="utf-8") as f:
@@ -862,10 +889,39 @@ def load_users():
     return []
 
 def save_users(users):
+    # save to file always (local backup)
     try:
         with open(USERS_PATH, "w", encoding="utf-8") as f:
             json.dump(users, f, indent=2, ensure_ascii=False)
     except: pass
+    # also upsert to Supabase if enabled
+    if _supabase_enabled():
+        try:
+            for u in users:
+                # upsert by id
+                payload = {
+                    "id": u.get("id"),
+                    "email": u.get("email","").lower(),
+                    "password": u.get("password",""),
+                    "name": u.get("name",""),
+                    "balsa_name": u.get("balsa_name",""),
+                    "gcash": u.get("gcash",""),
+                    "plan": u.get("plan","trial"),
+                    "created_at": u.get("created_at"),
+                    "trial_end": u.get("trial_end"),
+                    "business": u.get("business",{}),
+                    "vacation": u.get("vacation",{}),
+                    "oauth": u.get("oauth","")
+                }
+                r = requests.post(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}", headers={**_sb_headers(), "Prefer": "resolution=merge-duplicates"}, json=payload, timeout=8)
+                if r.status_code not in (200,201,204):
+                    # try patch if post fails
+                    r2 = requests.patch(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{u.get('id')}", headers=_sb_headers(), json=payload, timeout=8)
+                    if r2.status_code not in (200,204):
+                        print(f"[SB] save fail {u.get('email')} {r.status_code}/{r2.status_code}: {r.text[:80]}", flush=True)
+            print(f"[SB] saved {len(users)} users", flush=True)
+        except Exception as e:
+            print(f"[SB] save error {e}", flush=True)
 
 def hash_pw(pw): return hashlib.sha256(pw.encode()).hexdigest()
 def check_pw(pw, h): return hash_pw(pw) == h
