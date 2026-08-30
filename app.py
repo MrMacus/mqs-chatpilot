@@ -54,6 +54,9 @@ DEFAULT_CONFIG = {
     "ai_provider": "gemini",
     "ai_api_key": "",
     "auto_reply_enabled": True,
+    "vacation_enabled": False,
+    "vacation_until": "",
+    "vacation_reason": "Vacation",
     "port": 5000,
     "business_info": {
         "name": "Balsa ni Juan - Calatagan",
@@ -227,8 +230,19 @@ class CCPTMessengerBot(ctk.CTk):
             self.save_clients()
             r = requests.post(url, json={"clients": self.clients}, headers=headers, timeout=12)
             if r.status_code == 200:
-                messagebox.showinfo("Synced", f"Synced {len(self.clients)} balsas to cloud! Live na agad, no need GitHub upload.")
-                self.log(f"☁ Synced {len(self.clients)} clients to cloud ✓")
+                # also sync blocked dates per balsa + vacation
+                for c in self.clients:
+                    try:
+                        blocked = []
+                        p = resource_path(f"blocked_{c['id']}.json")
+                        if os.path.exists(p):
+                            with open(p, 'r', encoding='utf-8') as f:
+                                blocked = json.load(f)
+                        vac = {"enabled": c["config"].get("vacation_enabled", False), "until": c["config"].get("vacation_until",""), "reason": c["config"].get("vacation_reason","Vacation")}
+                        requests.post("https://mqs-chatpilot.onrender.com/admin/blocked", json={"balsa_id": c["id"], "blocked": blocked, "vacation": vac}, headers=headers, timeout=8)
+                    except: pass
+                messagebox.showinfo("Synced", f"Synced {len(self.clients)} balsas + blocked dates to cloud! Live na agad.")
+                self.log(f"☁ Synced {len(self.clients)} clients + blocked to cloud ✓")
             else:
                 messagebox.showwarning("Sync failed", f"{r.status_code}: {r.text[:200]}")
                 self.log(f"✗ Sync failed {r.status_code}: {r.text[:120]}")
@@ -284,6 +298,13 @@ class CCPTMessengerBot(ctk.CTk):
                 e.insert(0, str(cfg.get("business_info",{}).get(k,"")))
             self.webhook_label.configure(text=f"http://localhost:{cfg.get('port',5000)}/webhook")
             self._update_toggle_text()
+            try:
+                self.vac_var.set("on" if cfg.get("vacation_enabled") else "off")
+                self.vac_switch.configure(text_color=COLORS["red"] if cfg.get("vacation_enabled") else COLORS["text2"])
+                self.vac_label.configure(text=self._vac_text())
+                self.refresh_blocked()
+                self.refresh_dashboard()
+            except: pass
         except Exception as e:
             self.log(f"reload ui error: {e}")
 
@@ -433,21 +454,83 @@ class CCPTMessengerBot(ctk.CTk):
         except Exception as e:
             self.log(f"✗ bookings save error: {e}")
 
+    # ---------- BLOCKED DATES & VACATION ----------
+    def _blocked_path(self):
+        return resource_path(f"blocked_{self.active_client_id}.json")
+
+    def load_blocked_dates(self):
+        p = self._blocked_path()
+        if os.path.exists(p):
+            try:
+                with open(p, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, list): return data
+            except: pass
+        return []
+
+    def save_blocked_dates(self, data):
+        try:
+            with open(self._blocked_path(), 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            self.log(f"✗ blocked save error: {e}")
+
+    def is_vacation_active(self):
+        if not self.config_data.get("vacation_enabled"): return False, None
+        until = self.config_data.get("vacation_until","").strip()
+        if not until: return True, self.config_data.get("vacation_reason","Vacation")
+        try:
+            import datetime as _dt
+            # parse until date
+            for fmt in ("%Y-%m-%d","%m/%d/%Y","%d/%m/%Y"):
+                try:
+                    d = _dt.datetime.strptime(until, fmt).date()
+                    if _dt.date.today() <= d:
+                        return True, self.config_data.get("vacation_reason","Vacation")
+                    else:
+                        return False, None
+                except: continue
+            # fallback: if can't parse, treat as active
+            return True, self.config_data.get("vacation_reason","Vacation")
+        except: return True, self.config_data.get("vacation_reason","Vacation")
+
+    def is_date_blocked(self, date_str):
+        """Check vacation + blocked ranges. Returns (blocked_bool, reason, block_obj)."""
+        # vacation first
+        is_vac, reason = self.is_vacation_active()
+        if is_vac:
+            until = self.config_data.get("vacation_until","")
+            return True, f"Vacation ({reason}) until {until}" if until else f"Vacation ({reason})", {"id":"VACATION","reason":reason}
+        # check blocked ranges
+        try:
+            import datetime as _dt
+            qdate = self.parse_booking_date_local(date_str)
+            if not qdate: return False, None, None
+            for blk in self.load_blocked_dates():
+                try:
+                    s = _dt.datetime.strptime(blk.get("start",""), "%Y-%m-%d").date()
+                    e = _dt.datetime.strptime(blk.get("end",""), "%Y-%m-%d").date()
+                    if s <= qdate <= e:
+                        return True, blk.get("reason","Blocked"), blk
+                except: continue
+        except: pass
+        return False, None, None
+
     def check_availability(self, date_str):
-        """Check if date is already booked. date_str can be '2026-08-30' or 'Aug 30' - normalize simple."""
-        date_str = date_str.strip().lower()
-        # normalize: extract yyyy-mm-dd if present else compare substring
+        """Check if date is already booked OR blocked/vacation. Returns (available, info)."""
+        # first check vacation/blocked
+        blocked, reason, blk = self.is_date_blocked(date_str)
+        if blocked:
+            return False, {"customer_name": reason, "id": blk.get("id","BLOCKED"), "reason": reason, "blocked": True}
+        date_str_l = date_str.strip().lower()
         for b in self.bookings:
             if b.get("status") in ["cancelled"]:
                 continue
             bdate = b.get("date","").strip().lower()
             if not bdate:
                 continue
-            # exact match or substring match
-            if bdate == date_str or bdate in date_str or date_str in bdate:
+            if bdate == date_str_l or bdate in date_str_l or date_str_l in bdate:
                 return False, b
-            # also try parsing dates
-            # if both contain same day/month, consider conflict
         return True, None
 
     def create_inquiry(self, sender_id, date, pax, name, contact, tour_type="Day Tour"):
@@ -789,6 +872,23 @@ class CCPTMessengerBot(ctk.CTk):
         self.stat_confirmed = ctk.CTkLabel(stats_frame, text="✅ Confirmed: 0", font=("Segoe UI", 9, "bold"), text_color=COLORS["green"])
         self.stat_confirmed.pack(side="left", padx=10)
 
+        # vacation mode toggle + blocked summary
+        vac_frame = ctk.CTkFrame(tab2, fg_color=COLORS["card2"], corner_radius=8, border_width=1, border_color=COLORS["border"])
+        vac_frame.pack(fill="x", padx=6, pady=6)
+        self.vac_var = ctk.StringVar(value="on" if self.config_data.get("vacation_enabled") else "off")
+        self.vac_switch = ctk.CTkSwitch(vac_frame, text="🏖 Vacation Mode", command=self.toggle_vacation, variable=self.vac_var, onvalue="on", offvalue="off", progress_color=COLORS["red"], font=("Segoe UI", 9, "bold"), text_color=COLORS["red"] if self.config_data.get("vacation_enabled") else COLORS["text2"])
+        self.vac_switch.pack(side="left", padx=10, pady=8)
+        self.vac_label = ctk.CTkLabel(vac_frame, text=self._vac_text(), font=("Segoe UI", 9), text_color=COLORS["text2"])
+        self.vac_label.pack(side="left", padx=6)
+        ctk.CTkButton(vac_frame, text="⚙ Set Vacation", width=100, height=28, fg_color=COLORS["card"], border_width=1, border_color=COLORS["border"], command=self.set_vacation).pack(side="right", padx=6)
+        ctk.CTkButton(vac_frame, text="🚫 Block Dates", width=110, height=28, fg_color=COLORS["red"], hover_color="#cc0033", command=self.block_dates_popup).pack(side="right", padx=6)
+
+        # blocked dates list (calendar view)
+        self.blocked_frame = ctk.CTkScrollableFrame(tab2, fg_color=COLORS["console"], corner_radius=8, height=70, border_width=1, border_color=COLORS["border"])
+        self.blocked_frame.pack(fill="x", padx=6, pady=6)
+        self.blocked_label = ctk.CTkLabel(self.blocked_frame, text="🚫 Blocked Dates: none", font=("Consolas", 10), text_color=COLORS["yellow"])
+        self.blocked_label.pack(anchor="w", padx=6, pady=4)
+
         # availability checker
         avail_frame = ctk.CTkFrame(tab2, fg_color=COLORS["card2"], corner_radius=8)
         avail_frame.pack(fill="x", padx=6, pady=6)
@@ -799,7 +899,7 @@ class CCPTMessengerBot(ctk.CTk):
         self.avail_result = ctk.CTkLabel(avail_frame, text="", font=("Segoe UI", 9, "bold"), text_color=COLORS["text"])
         self.avail_result.pack(side="left", padx=8)
 
-        self.bookings_scroll = ctk.CTkScrollableFrame(tab2, fg_color="transparent", height=380)
+        self.bookings_scroll = ctk.CTkScrollableFrame(tab2, fg_color="transparent", height=320)
         self.bookings_scroll.pack(fill="both", expand=True, padx=6, pady=6)
 
         # --- TAB 3: DASHBOARD ---
@@ -842,6 +942,7 @@ class CCPTMessengerBot(ctk.CTk):
         self.after(500, lambda: self.log("=== MQS AutoReply v2.0 Booking System Started ==="))
         self.after(600, lambda: self.log("V2 Features: Auto-booking, GCash, Availability check, Standalone flow"))
         self.after(700, self.refresh_bookings)
+        self.after(720, self.refresh_blocked)
         self.after(750, self.refresh_dashboard)
         self.after(800, lambda: self.log(f"Webhook: http://localhost:{self.config_data.get('port',5000)}/webhook"))
 
@@ -992,7 +1093,135 @@ class CCPTMessengerBot(ctk.CTk):
         if avail:
             self.avail_result.configure(text=f"✅ Available ang {d}", text_color=COLORS["green"])
         else:
-            self.avail_result.configure(text=f"❌ Taken na {d} by {booked.get('customer_name','')} ({booked.get('id','')})", text_color=COLORS["red"])
+            if booked.get("blocked"):
+                self.avail_result.configure(text=f"🚫 Blocked {d}: {booked.get('reason','')}", text_color=COLORS["red"])
+            else:
+                self.avail_result.configure(text=f"❌ Taken na {d} by {booked.get('customer_name','')} ({booked.get('id','')})", text_color=COLORS["red"])
+
+    # ---------- VACATION & BLOCKED UI ----------
+    def _vac_text(self):
+        if self.config_data.get("vacation_enabled"):
+            u = self.config_data.get("vacation_until","")
+            r = self.config_data.get("vacation_reason","Vacation")
+            return f"ON until {u} ({r})" if u else f"ON ({r})"
+        return "OFF"
+
+    def toggle_vacation(self):
+        enabled = self.vac_var.get() == "on"
+        self.config_data["vacation_enabled"] = enabled
+        self.save_config()
+        self.vac_switch.configure(text_color=COLORS["red"] if enabled else COLORS["text2"])
+        self.vac_label.configure(text=self._vac_text())
+        self.refresh_blocked()
+        self.log(f"{'🏖 Vacation ON' if enabled else '🏖 Vacation OFF'} {self._vac_text()}")
+
+    def set_vacation(self):
+        win = ctk.CTkToplevel(self)
+        win.title("Vacation Mode")
+        win.geometry("420x350")
+        win.configure(fg_color=COLORS["card"])
+        win.transient(self); win.grab_set()
+        ctk.CTkLabel(win, text="🏖 Set Vacation / Emergency Close", font=("Segoe UI", 13, "bold"), text_color=COLORS["accent"]).pack(pady=12)
+        ctk.CTkLabel(win, text="Until Date (YYYY-MM-DD, blank = indefinite)", font=("Segoe UI", 11), text_color=COLORS["text2"]).pack(anchor="w", padx=20)
+        until_e = ctk.CTkEntry(win, width=380, height=34)
+        until_e.pack(padx=20, pady=6)
+        until_e.insert(0, self.config_data.get("vacation_until",""))
+        ctk.CTkLabel(win, text="Reason", font=("Segoe UI", 11), text_color=COLORS["text2"]).pack(anchor="w", padx=20)
+        reason_e = ctk.CTkEntry(win, width=380, height=34)
+        reason_e.pack(padx=20, pady=6)
+        reason_e.insert(0, self.config_data.get("vacation_reason","Vacation - may bagyo"))
+        reasons = ["Vacation","Bagyo / Typhoon","Emergency","Maintenance","Closed"]
+        def pick(r):
+            reason_e.delete(0,"end"); reason_e.insert(0,r)
+        rf = ctk.CTkFrame(win, fg_color="transparent")
+        rf.pack(fill="x", padx=20, pady=4)
+        for r in reasons:
+            ctk.CTkButton(rf, text=r, width=75, height=24, font=("Segoe UI", 8), fg_color=COLORS["card2"], command=lambda x=r: pick(x)).pack(side="left", padx=2)
+        def save():
+            self.config_data["vacation_until"] = until_e.get().strip()
+            self.config_data["vacation_reason"] = reason_e.get().strip() or "Vacation"
+            self.config_data["vacation_enabled"] = True
+            self.vac_var.set("on")
+            self.save_config()
+            self.vac_switch.configure(text_color=COLORS["red"])
+            self.vac_label.configure(text=self._vac_text())
+            self.refresh_blocked()
+            self.log(f"🏖 Vacation set until {until_e.get().strip()} reason {reason_e.get().strip()}")
+            win.destroy()
+            messagebox.showinfo("Vacation Set", f"Vacation ON: {self._vac_text()}\nAI will auto-reply closed.")
+        ctk.CTkButton(win, text="✅ Enable Vacation", fg_color=COLORS["red"], hover_color="#cc0033", command=save).pack(pady=12, padx=20, fill="x")
+        ctk.CTkButton(win, text="❌ Disable Vacation", fg_color=COLORS["card2"], command=lambda: (self.config_data.update({"vacation_enabled": False}), self.vac_var.set("off"), self.save_config(), self.vac_label.configure(text=self._vac_text()), self.vac_switch.configure(text_color=COLORS["text2"]), self.refresh_blocked(), win.destroy())).pack(padx=20, fill="x")
+        ctk.CTkButton(win, text="Cancel", fg_color="transparent", border_width=1, border_color=COLORS["border"], text_color=COLORS["text2"], command=win.destroy).pack(pady=6, padx=20, fill="x")
+
+    def block_dates_popup(self):
+        win = ctk.CTkToplevel(self)
+        win.title("Block Dates")
+        win.geometry("440x400")
+        win.configure(fg_color=COLORS["card"])
+        win.transient(self); win.grab_set()
+        ctk.CTkLabel(win, text="🚫 Block Date Range", font=("Segoe UI", 13, "bold"), text_color=COLORS["accent"]).pack(pady=12)
+        ctk.CTkLabel(win, text="Start Date (YYYY-MM-DD)", font=("Segoe UI", 11), text_color=COLORS["text2"]).pack(anchor="w", padx=20)
+        s_e = ctk.CTkEntry(win, width=400, height=34, placeholder_text="2026-09-10")
+        s_e.pack(padx=20, pady=4)
+        ctk.CTkLabel(win, text="End Date (YYYY-MM-DD)", font=("Segoe UI", 11), text_color=COLORS["text2"]).pack(anchor="w", padx=20)
+        e_e = ctk.CTkEntry(win, width=400, height=34, placeholder_text="2026-09-15")
+        e_e.pack(padx=20, pady=4)
+        ctk.CTkLabel(win, text="Reason", font=("Segoe UI", 11), text_color=COLORS["text2"]).pack(anchor="w", padx=20)
+        r_e = ctk.CTkEntry(win, width=400, height=34, placeholder_text="Bagyo / Vacation / Emergency")
+        r_e.pack(padx=20, pady=4)
+        r_e.insert(0, "Bagyo")
+        reasons = ["Bagyo","Vacation","Emergency","Maintenance"]
+        rf = ctk.CTkFrame(win, fg_color="transparent")
+        rf.pack(fill="x", padx=20, pady=4)
+        for r in reasons:
+            ctk.CTkButton(rf, text=r, width=80, height=24, font=("Segoe UI", 8), fg_color=COLORS["card2"], command=lambda x=r: (r_e.delete(0,"end"), r_e.insert(0,x))).pack(side="left", padx=2)
+        def save():
+            import datetime as _dt
+            s = s_e.get().strip()
+            e = e_e.get().strip() or s
+            reason = r_e.get().strip() or "Blocked"
+            try:
+                _dt.datetime.strptime(s, "%Y-%m-%d")
+                _dt.datetime.strptime(e, "%Y-%m-%d")
+                if s > e: raise ValueError("Start > End")
+            except Exception as ex:
+                messagebox.showwarning("Date error", f"Use YYYY-MM-DD format.\n{ex}")
+                return
+            data = self.load_blocked_dates()
+            data.append({"id": f"BLK{int(time.time())%100000:05d}", "start": s, "end": e, "reason": reason, "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+            self.save_blocked_dates(data)
+            self.refresh_blocked()
+            self.log(f"🚫 Blocked {s} to {e} ({reason})")
+            win.destroy()
+            messagebox.showinfo("Blocked", f"Blocked {s} → {e}\nReason: {reason}")
+        ctk.CTkButton(win, text="✅ Block Range", fg_color=COLORS["red"], hover_color="#cc0033", command=save).pack(pady=12, padx=20, fill="x")
+        ctk.CTkButton(win, text="Cancel", fg_color=COLORS["card2"], command=win.destroy).pack(padx=20, fill="x")
+
+    def refresh_blocked(self):
+        try:
+            for w in self.blocked_frame.winfo_children():
+                w.destroy()
+            # vacation banner
+            is_vac, reason = self.is_vacation_active()
+            if is_vac:
+                ctk.CTkLabel(self.blocked_frame, text=f"🏖 VACATION ON: {reason} — {self._vac_text()}  (AI says closed)", font=("Segoe UI", 10, "bold"), text_color=COLORS["red"]).pack(anchor="w", padx=6, pady=2)
+            data = self.load_blocked_dates()
+            if not data and not is_vac:
+                ctk.CTkLabel(self.blocked_frame, text="🚫 Blocked Dates: none — click 🚫 Block Dates to add", font=("Consolas", 10), text_color="gray").pack(anchor="w", padx=6, pady=4)
+                return
+            for blk in data:
+                row = ctk.CTkFrame(self.blocked_frame, fg_color=COLORS["card2"], corner_radius=6)
+                row.pack(fill="x", padx=4, pady=2)
+                ctk.CTkLabel(row, text=f"🚫 {blk.get('start','')} → {blk.get('end','')}  ({blk.get('reason','')})  [{blk.get('id','')}]", font=("Consolas", 10), text_color=COLORS["yellow"]).pack(side="left", padx=8, pady=4)
+                ctk.CTkButton(row, text="✕ Unblock", width=70, height=24, font=("Segoe UI", 8), fg_color=COLORS["card"], border_width=1, border_color=COLORS["red"], text_color=COLORS["red"], command=lambda bid=blk["id"]: self.unblock_date(bid)).pack(side="right", padx=6)
+        except Exception as e:
+            self.log(f"blocked refresh error: {e}")
+
+    def unblock_date(self, bid):
+        data = [b for b in self.load_blocked_dates() if b.get("id") != bid]
+        self.save_blocked_dates(data)
+        self.refresh_blocked()
+        self.log(f"✅ Unblocked {bid}")
 
     def manual_add_booking(self):
         # simple popup via messagebox + entry? Use toplevel
@@ -1575,6 +1804,8 @@ class CCPTMessengerBot(ctk.CTk):
             # first time complete -> check availability/capacity then create INQUIRY and ask confirm
             avail, taken = self.check_availability(session["pending_date"])
             if not avail:
+                if taken.get("blocked"):
+                    return f"Sorry po, sarado kami sa {session['pending_date']} — {taken.get('reason','blocked')} 🚫. Available po kami sa next open date. Anong ibang date po gusto nyo? 😊"
                 return f"Sorry po, taken na ang {session['pending_date']} (na-book na ni {taken.get('customer_name','other guest')} [{taken.get('id','')}]). Available pa po next dates. Anong ibang date po gusto nyo? 😊"
             try:
                 pax_num = int(re.search(r"\d+", session["pending_pax"]).group(0))
@@ -1704,6 +1935,8 @@ class CCPTMessengerBot(ctk.CTk):
                 if avail:
                     return f"✅ Available pa po ang {date_to_check}! 😊 Day {price_day}, Night {price_night}, Capacity {capacity}. Ilan pax po kayo para ma-hold ko booking nyo?"
                 else:
+                    if taken.get("blocked"):
+                        return f"🚫 Sorry po, sarado kami sa {date_to_check} — {taken.get('reason','blocked')}. Next available date po kayo? 😊"
                     return f"❌ Sorry po, taken na ang {date_to_check} ni {taken.get('customer_name','guest')} [{taken.get('id','')}]. Pero available pa next dates. Anong ibang date po gusto nyo?"
             else:
                 return f"To check availability, which date would you like? Day {price_day}, Night {price_night} 😊"

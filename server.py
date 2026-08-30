@@ -254,6 +254,52 @@ def load_bookings(client_id):
         except: pass
     return []
 
+def load_blocked_dates_server(client_id):
+    p = resource_path(f"blocked_{client_id}.json")
+    if os.path.exists(p):
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list): return data
+        except: pass
+    return []
+
+def is_vacation_active_server(client):
+    if not client["config"].get("vacation_enabled"): return False, None
+    until = client["config"].get("vacation_until","").strip()
+    if not until: return True, client["config"].get("vacation_reason","Vacation")
+    try:
+        import datetime as _dt
+        for fmt in ("%Y-%m-%d","%m/%d/%Y","%d/%m/%Y"):
+            try:
+                d = _dt.datetime.strptime(until, fmt).date()
+                if _dt.date.today() <= d:
+                    return True, client["config"].get("vacation_reason","Vacation")
+                else:
+                    return False, None
+            except: continue
+        return True, client["config"].get("vacation_reason","Vacation")
+    except: return True, client["config"].get("vacation_reason","Vacation")
+
+def is_date_blocked_server(client, date_str):
+    is_vac, reason = is_vacation_active_server(client)
+    if is_vac:
+        until = client["config"].get("vacation_until","")
+        return True, f"Vacation ({reason}) until {until}" if until else f"Vacation ({reason})", {"id":"VACATION","reason":reason}
+    try:
+        import datetime as _dt
+        qdate = parse_booking_date(date_str)
+        if not qdate: return False, None, None
+        for blk in load_blocked_dates_server(client["id"]):
+            try:
+                s = _dt.datetime.strptime(blk.get("start",""), "%Y-%m-%d").date()
+                e = _dt.datetime.strptime(blk.get("end",""), "%Y-%m-%d").date()
+                if s <= qdate <= e:
+                    return True, blk.get("reason","Blocked"), blk
+            except: continue
+    except: pass
+    return False, None, None
+
 
 # === GOOGLE CALENDAR HELPERS ===
 def is_calendar_available(client, date_str):
@@ -664,6 +710,32 @@ def generate_reply(client, sender_id, text):
     biz = config["business_info"]
     api_key = config.get("ai_api_key", "")
 
+    # Check vacation/blocked first - if blocked, reply directly without AI
+    blocked_ck, reason_ck, _blk = is_date_blocked_server(client, text)
+    # also try extract date from text for blocked check
+    if not blocked_ck:
+        import re as _re2
+        for pat in [r"\d{4}-\d{1,2}-\d{1,2}", r"dec\s*\d{1,2}", r"nov\s*\d{1,2}", r"jan\s*\d{1,2}", r"feb\s*\d{1,2}", r"aug\s*\d{1,2}", r"sep\s*\d{1,2}", r"oct\s*\d{1,2}"]:
+            m = _re2.search(pat, text.lower())
+            if m:
+                bck, rck, _ = is_date_blocked_server(client, m.group(0))
+                if bck:
+                    blocked_ck, reason_ck = True, rck
+                    break
+    if blocked_ck:
+        is_vac, _ = is_vacation_active_server(client)
+        if is_vac:
+            until = client["config"].get("vacation_until","")
+            reply_vac = f"Sorry po, sarado kami — {reason_ck} 🚫. Balik kami {until if until else 'soon'}. Gusto nyo po next open date? 😊"
+            sess["history"].append(f"AI: {reply_vac}")
+            save_sessions()
+            return reply_vac
+        else:
+            reply_blk = f"Sorry po, sarado kami sa date na yan — {reason_ck} 🚫. Available po kami next open date, anong ibang date po gusto nyo? 😊"
+            sess["history"].append(f"AI: {reply_blk}")
+            save_sessions()
+            return reply_blk
+
     # Check calendar for availability if asked, and add to prompt
     cal_info = ""
     if any(k in text.lower() for k in ["available", "avail", "bakante", "free", "dec ", "nov ", "jan ", "feb ", "mar ", "apr ", "may ", "jun ", "jul ", "aug ", "sep ", "oct"]):
@@ -784,6 +856,46 @@ def admin_verify_gcash():
         biz = client["config"].get("business_info",{})
         res = verify_gcash_image(img_bytes, biz, client["config"].get("ai_api_key",""))
         return jsonify({"ok":True, "result": res})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/admin/blocked", methods=["GET"])
+def admin_blocked_get():
+    token = request.headers.get("X-SYNC-TOKEN","")
+    if token != os.environ.get("SYNC_TOKEN","mqs_sync_2026") and token != "mqs_sync_2026":
+        return jsonify({"error":"unauthorized"}), 403
+    balsa_id = request.args.get("balsa_id","balsa_1")
+    client = next((c for c in clients if c["id"]==balsa_id), clients[0] if clients else None)
+    if not client: return jsonify({"error":"no client"}), 404
+    return jsonify({"blocked": load_blocked_dates_server(client["id"]), "vacation": {"enabled": client["config"].get("vacation_enabled",False), "until": client["config"].get("vacation_until",""), "reason": client["config"].get("vacation_reason","")}})
+
+@app.route("/admin/blocked", methods=["POST"])
+def admin_blocked_post():
+    token = request.headers.get("X-SYNC-TOKEN","")
+    if token != os.environ.get("SYNC_TOKEN","mqs_sync_2026") and token != "mqs_sync_2026":
+        return jsonify({"error":"unauthorized"}), 403
+    try:
+        data = request.get_json()
+        balsa_id = data.get("balsa_id","balsa_1")
+        client = next((c for c in clients if c["id"]==balsa_id), None)
+        if not client: return jsonify({"error":"no client"}), 404
+        # vacation
+        if "vacation" in data:
+            vac = data["vacation"]
+            client["config"]["vacation_enabled"] = bool(vac.get("enabled", False))
+            client["config"]["vacation_until"] = vac.get("until","")
+            client["config"]["vacation_reason"] = vac.get("reason","Vacation")
+        # blocked list
+        if "blocked" in data:
+            p = resource_path(f"blocked_{client['id']}.json")
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(data["blocked"], f, indent=4, ensure_ascii=False)
+        # persist clients
+        try:
+            with open(CLIENTS_PATH, "w", encoding="utf-8") as f:
+                json.dump(clients, f, indent=4, ensure_ascii=False)
+        except: pass
+        return jsonify({"ok":True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
