@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — MQS ChatPilot</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+.auth-page{max-width:420px;margin:40px auto;padding:20px}
+.auth-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px}
+.auth-card h2{margin-bottom:4px}
+.auth-card .sub{color:var(--text2);font-size:.9rem;margin-bottom:16px}
+.auth-card label{font-size:.85rem;color:var(--text2);display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.auth-card input{background:var(--card2);border:1px solid var(--border);color:var(--text);padding:11px;border-radius:10px;font-size:.95rem}
+.divider{display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--text2);font-size:.85rem}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--border)}
+.oauth{display:flex;gap:8px}
+.oauth button{flex:1;padding:11px;border-radius:10px;font-weight:700;cursor:pointer;border:1px solid var(--border)}
+.oauth .g{background:var(--card2);color:var(--text)}
+.oauth .f{background:#1877F2;color:#fff;border:none}
+.err{background:#3a1f1f;border:1px solid var(--red);color:#ffb4b4;padding:8px;border-radius:8px;font-size:.85rem;display:none;margin-bottom:10px}
+</style>
+</head>
+<body>
+<nav class="nav"><div class="nav-inner"><a class="brand" href="/"><span class="dot">●</span> MQS <strong>ChatPilot</strong></a><div class="nav-links"><a href="/">Home</a><a href="/#pricing">Presyo</a></div><div class="nav-cta"><a class="btn ghost" href="/register">Register</a></div></div></nav>
+<div class="auth-page">
+  <div class="auth-card">
+    <h2>Mag-login</h2><p class="sub">Para ma-edit mo AI ng balsa mo — trial 1 day lang, after 24h tatanungin kung mag-avail ka.</p>
+    <div id="err" class="err"></div>
+    <label>Email <input id="email" type="email" placeholder="juan@gmail.com"></label>
+    <label>Password <input id="pass" type="password" placeholder="••••••••"></label>
+    <button class="btn primary full" onclick="doLogin()">Login →</button>
+    <div class="divider">or</div>
+    <div class="oauth">
+      <button class="g" onclick="oauth('google')">🔵 Google</button>
+      <button class="f" onclick="oauth('facebook')">ⓕ Facebook</button>
+    </div>
+    <p class="small" style="margin-top:12px;text-align:center">Wala pa account? <a href="/register" style="color:var(--accent2);text-decoration:underline">Register free trial</a></p>
+    <p class="small" style="text-align:center;margin-top:6px"><a href="/" style="color:var(--text2)">← Back to Home</a></p>
+  </div>
+</div>
+<script>
+function showErr(m){const e=document.getElementById('err');e.textContent=m;e.style.display='block'}
+async function doLogin(){
+  const email=document.getElementById('email').value.trim();
+  const pass=document.getElementById('pass').value;
+  if(!email||!pass) return showErr('Lagay email at password');
+  const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email, password:pass})});
+  const j=await r.json();
+  if(j.ok){ location.href='/dashboard'; } else showErr(j.error||'Login failed');
+}
+async function oauth(p){
+  // mock OAuth - just register/login with prompt
+  const email=prompt('Mock '+p+' login — lagay email mo (trial agad):');
+  if(!email) return;
+  const r=await fetch('/api/oauth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:p, email})});
+  const j=await r.json();
+  if(j.ok) location.href='/dashboard'; else showErr(j.error||'OAuth failed');
+}
+</script>
+</body>
+</html>

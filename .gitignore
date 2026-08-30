@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+bookings*.json
+clients.json
+config.json
+!config.example.json
+users.json
+blocked_*.json

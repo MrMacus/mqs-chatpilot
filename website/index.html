@@ -20,8 +20,8 @@
       <a href="#faq">FAQ</a>
     </div>
     <div class="nav-cta">
-      <a class="btn ghost" href="#demo">Mag-login</a>
-      <a class="btn primary" href="#pricing">Free Trial 7 Days →</a>
+      <a class="btn ghost" href="/login">Mag-login</a>
+      <a class="btn primary" href="/register">Free Trial 1 Day →</a>
     </div>
   </div>
 </nav>
@@ -34,7 +34,7 @@
       <h1>AI na Sumasagot<br><span class="accent">sa Messenger</span><br>Habang Tulog Ka.</h1>
       <p class="sub">Hindi mo na kailangan magpuyat kakareply. Si MQS ChatPilot ang sasagot — presyo, availability, booking, GCash, pati reminder & review. <strong>Day Tour 7am-4pm, isang balsa o 10 balsas, kaya.</strong></p>
       <div class="hero-cta">
-        <a class="btn primary lg" href="#pricing">🚀 Simulan Free Trial — 7 Days</a>
+        <a class="btn primary lg" href="/register">🚀 Simulan Free Trial — 1 Day</a>
         <a class="btn ghost lg" href="#demo">🎥 Panoorin Demo (1 min)</a>
       </div>
       <div class="trust">
@@ -81,32 +81,32 @@
 <!-- PRICING -->
 <section id="pricing" class="section dark">
   <h2>Presyo — <span>Local muna, hindi pang-Manila.</span></h2>
-  <p class="center muted">7 days free trial — no card. Pag nagustuhan, monthly lang. Cancel anytime. Isang balsa o 10, kaya.</p>
+  <p class="center muted">1 day free trial — no card. After 24h tatanungin kung mag-avail. Monthly lang. Cancel anytime.</p>
   <div class="pricing">
     <div class="price card">
-      <h3>Free Trial</h3><div class="amt">₱0 <small>/ 7 days</small></div><p>Full features, 1 balsa, 50 conversations</p>
-      <ul><li>✓ Lahat ng features</li><li>✓ Taglish AI</li><li>✓ GCash verify (5)</li></ul>
-      <a class="btn ghost full" href="#demo">Start Trial →</a>
+      <h3>Free Trial</h3><div class="amt">₱0 <small>/ 1 day</small></div><p>Full features, 1 balsa, 50 conversations</p>
+      <ul><li>✓ Lahat ng features</li><li>✓ Taglish AI</li><li>✓ GCash verify (5)</li><li>⏰ After 24h: avail prompt</li></ul>
+      <a class="btn ghost full" href="/register">Start Trial →</a>
     </div>
     <div class="price card popular">
       <div class="pop">PINAKA SULIT — Pang 1 Balsa</div>
       <h3>Starter</h3><div class="amt">₱299 <small>/ buwan</small></div><p>Perfect sa 1 balsa sa Calatagan</p>
       <ul><li>✓ 1 balsa, unlimited chat</li><li>✓ Unlimited bookings</li><li>✓ GCash auto-verify</li><li>✓ Reminders + Reviews</li></ul>
-      <a class="btn primary full" href="#demo">Piliin Starter →</a>
+      <a class="btn primary full" href="/register">Piliin Starter →</a>
       <small class="muted">₱3,588 / taon (save ₱400)</small>
     </div>
     <div class="price card">
       <h3>Pro — 3 Balsa</h3><div class="amt">₱699 <small>/ buwan</small></div><p>Para sa may 3 balsa</p>
       <ul><li>✓ 3 balsa, lahat ng features</li><li>✓ Per-balsa dashboard</li><li>✓ Priority support</li></ul>
-      <a class="btn ghost full" href="#demo">Piliin Pro →</a>
+      <a class="btn ghost full" href="/register">Piliin Pro →</a>
     </div>
     <div class="price card">
       <h3>Resort</h3><div class="amt">₱1,299 <small>/ buwan</small></div><p>Hanggang 10 balsa</p>
       <ul><li>✓ 10 balsa</li><li>✓ White-label (logo mo)</li><li>✓ GCash + Calendar + API</li></ul>
-      <a class="btn ghost full" href="#demo">Ka-usapin Kami →</a>
+      <a class="btn ghost full" href="/register">Ka-usapin Kami →</a>
     </div>
   </div>
-  <p class="center small">GCash / Maya / Bank transfer • OR code • Resibo auto • 7-day refund</p>
+  <p class="center small">GCash / Maya / Bank transfer • OR code • 7-day refund • Trial 1 day lang</p>
 </section>
 
 <!-- DEMO / CUSTOMIZE -->
@@ -163,7 +163,7 @@
 </footer>
 
 <script>
-function mockSignup(p){ alert('Mock ' + p + ' login — sa real site dito papasok OAuth. Trial agad 7 days!'); }
+function mockSignup(p){ location.href='/register'; }
 function saveDemo(){
   const n=document.getElementById('biz_name').value||'Balsa ni Juan';
   const cap=document.getElementById('biz_cap').value||'15 pax';

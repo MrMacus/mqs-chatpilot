@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — MQS ChatPilot</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+.dash{max-width:1080px;margin:20px auto;padding:0 20px;display:grid;grid-template-columns:280px 1fr;gap:16px}
+.side{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;height:fit-content;position:sticky;top:70px}
+.side h3{font-size:.9rem;color:var(--text2);margin-bottom:8px}
+.side a{display:block;padding:8px 10px;border-radius:8px;color:var(--text2);font-weight:600}
+.side a.active,.side a:hover{background:var(--card2);color:var(--text)}
+.main{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px}
+.banner{padding:10px 14px;border-radius:10px;margin-bottom:14px;font-weight:700;font-size:.9rem}
+.banner.trial{background:#1a2e1a;border:1px solid var(--green);color:var(--green)}
+.banner.expired{background:#3a1f1f;border:1px solid var(--red);color:#ffb4b4}
+.card2{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px}
+.card2 h4{margin-bottom:6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{font-size:.85rem;color:var(--text2);display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+input,textarea,select{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:8px;font-size:.9rem}
+textarea{min-height:70px;resize:vertical}
+@media(max-width:800px){.dash{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<nav class="nav"><div class="nav-inner"><a class="brand" href="/"><span class="dot">●</span> MQS <strong>ChatPilot</strong> <span class="ver">Dashboard</span></a><div class="nav-cta"><span id="user_email" style="color:var(--text2);font-size:.9rem"></span><a class="btn ghost" href="#" onclick="logout()">Logout</a></div></div></nav>
+<div class="dash">
+  <aside class="side">
+    <h3>MENU</h3>
+    <a href="#" class="active">⚙ Business Info (AI)</a>
+    <a href="#" onclick="alert('Bookings nasa desktop app pa — next update isama sa web')">📅 Bookings</a>
+    <a href="#" onclick="alert('Dashboard analytics nasa desktop — next update web sync')">📊 Analytics</a>
+    <a href="#" onclick="alert('GCash verify nasa Messenger/desktop — web upload soon')">🖼 GCash Verify</a>
+    <h3 style="margin-top:14px">BILLING</h3>
+    <a href="#" onclick="showBilling()">💳 Plan & Billing</a>
+    <a href="#" onclick="logout()">🚪 Logout</a>
+  </aside>
+  <main class="main">
+    <div id="banner" class="banner trial" style="display:none"></div>
+    <h2>Customize AI — <span style="color:var(--text2);font-weight:400">dito mo i-edit lahat, auto-update si AI</span></h2>
+    <p class="small muted" style="margin-bottom:12px">Naka-login ka na — lahat ng ibahin mo dito, yun na sasabihin ni AI sa Messenger. Trial 1 day, after 24h tatanungin kung mag-avail.</p>
+    <div id="form">
+      <div class="grid2">
+        <label>Balsa Name <input id="biz_name"></label>
+        <label>Location <input id="biz_loc"></label>
+      </div>
+      <div class="grid2">
+        <label>Price Day Tour <input id="biz_price" placeholder="3500 (7am-4pm)"></label>
+        <label>Capacity <input id="biz_cap" placeholder="15 pax"></label>
+      </div>
+      <label>Inclusions <textarea id="biz_inc" placeholder="Cottage, videoke, ihawan..."></textarea></label>
+      <div class="grid2">
+        <label>GCash Number <input id="biz_gcash"></label>
+        <label>GCash Name <input id="biz_gcash_name"></label>
+      </div>
+      <div class="grid2">
+        <label>Contact <input id="biz_contact"></label>
+        <label>Downpayment <input id="biz_down"></label>
+      </div>
+      <label>Google Maps Link <input id="biz_maps"></label>
+      <label>Extra Info <textarea id="biz_extra"></textarea></label>
+      <div class="card2">
+        <h4>🔒 Bagyo / Vacation</h4>
+        <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="vac_on"> Vacation Mode ON</label>
+        <div class="grid2">
+          <label>Until <input id="vac_until" type="date"></label>
+          <label>Reason <input id="vac_reason" placeholder="Bagyo"></label>
+        </div>
+      </div>
+      <button class="btn primary full" onclick="saveBiz()">💾 Save — AI Updated!</button>
+      <p class="small muted" style="margin-top:8px">Auto-sync sa cloud — no need Sync button, auto na.</p>
+    </div>
+    <div id="billing" class="card2" style="display:none">
+      <h4>💳 Billing</h4>
+      <p>Plan: <strong id="plan"></strong> • Trial ends: <span id="trial_end"></span></p>
+      <p class="small muted">After trial, pili ka Starter ₱299/mo or Pro ₱699 — GCash/Maya. Contact MQS TECH sa FB.</p>
+      <a class="btn primary" href="#" onclick="alert('GCash checkout next update — contact MQS TECH muna sa FB for manual avail')">Mag-avail na →</a>
+    </div>
+  </main>
+</div>
+<script>
+async function loadMe(){
+  const r=await fetch('/api/me'); const j=await r.json();
+  if(!j.ok){ location.href='/login'; return; }
+  document.getElementById('user_email').textContent=j.user.email+' • '+j.user.plan+' • Trial: '+ (j.trial_hours_left>0 ? j.trial_hours_left+'h left' : 'expired');
+  const b=j.business;
+  document.getElementById('biz_name').value=b.name||''; document.getElementById('biz_loc').value=b.location||''; document.getElementById('biz_price').value=b.price_day||''; document.getElementById('biz_cap').value=b.capacity||''; document.getElementById('biz_inc').value=b.inclusions||''; document.getElementById('biz_gcash').value=b.gcash_number||''; document.getElementById('biz_gcash_name').value=b.gcash_name||''; document.getElementById('biz_contact').value=b.contact||''; document.getElementById('biz_down').value=b.downpayment||''; document.getElementById('biz_maps').value=b.google_maps_link||''; document.getElementById('biz_extra').value=b.extra_info||'';
+  document.getElementById('vac_on').checked=j.vacation.enabled; document.getElementById('vac_until').value=j.vacation.until||''; document.getElementById('vac_reason').value=j.vacation.reason||'';
+  document.getElementById('plan').textContent=j.user.plan; document.getElementById('trial_end').textContent=j.trial_end;
+  const banner=document.getElementById('banner');
+  if(j.trial_expired){
+    banner.className='banner expired'; banner.style.display='block'; banner.innerHTML='⏰ Trial expired na (1 day)! Nagustuhan mo ba? <a href="#" onclick="showBilling()" style="color:#fff;text-decoration:underline">Mag-avail na — ₱299/mo</a> • Contact MQS TECH';
+  } else if(j.trial_hours_left<=6){
+    banner.style.display='block'; banner.innerHTML='⏰ Trial mo matatapos in '+j.trial_hours_left+'h — gusto mo mag-avail? <a href="#" onclick="showBilling()" style="color:#fff;text-decoration:underline">Piliin plan</a>';
+  } else {
+    banner.style.display='block'; banner.textContent='✅ Trial active — '+j.trial_hours_left+'h left (1 day trial). After 24h tatanungin ka kung mag-avail.';
+  }
+}
+function showBilling(){ document.getElementById('billing').style.display='block'; document.getElementById('billing').scrollIntoView({behavior:'smooth'}); }
+async function saveBiz(){
+  const body={name:biz_name.value, location:biz_loc.value, price_day:biz_price.value, capacity:biz_cap.value, inclusions:biz_inc.value, gcash_number:biz_gcash.value, gcash_name:biz_gcash_name.value, contact:biz_contact.value, downpayment:biz_down.value, google_maps_link:biz_maps.value, extra_info:biz_extra.value, vacation:{enabled:vac_on.checked, until:vac_until.value, reason:vac_reason.value}};
+  const r=await fetch('/api/save-business',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json();
+  if(j.ok) alert('Saved! AI updated — test mo sa Messenger.'); else alert(j.error||'Save failed');
+}
+async function logout(){ await fetch('/api/logout',{method:'POST'}); location.href='/'; }
+loadMe();
+</script>
+</body>
+</html>

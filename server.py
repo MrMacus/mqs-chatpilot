@@ -2,9 +2,9 @@
 MQS ChatPilot - Cloud Webhook Server with Gemini AI Integration
 Deployed to Render: https://mqs-chatpilot.onrender.com
 """
-import os, json, re, time, random
-from datetime import datetime
-from flask import Flask, request, jsonify
+import os, json, re, time, random, hashlib
+from datetime import datetime, timedelta
+from flask import Flask, request, jsonify, session, redirect, send_from_directory
 import requests
 
 def resource_path(p): return os.path.join(os.path.dirname(__file__), p)
@@ -13,6 +13,7 @@ CONFIG_PATH = resource_path("config.json")
 CLIENTS_PATH = resource_path("clients.json")
 BOOKINGS_PATH = resource_path("bookings.json")
 SESSIONS_PATH = resource_path("sessions.json")
+USERS_PATH = resource_path("users.json")
 
 def load_clients():
     if os.path.exists(CLIENTS_PATH):
@@ -847,6 +848,42 @@ def get_dashboard_stats_for_client(client):
     }
 
 app = Flask(__name__, static_folder="website", static_url_path="")
+app.secret_key = os.environ.get("FLASK_SECRET", "mqs_secret_2026_change_in_prod")
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+# === USERS / AUTH HELPERS (trial 1 day, hidden admin) ===
+def load_users():
+    if os.path.exists(USERS_PATH):
+        try:
+            with open(USERS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list): return data
+        except: pass
+    return []
+
+def save_users(users):
+    try:
+        with open(USERS_PATH, "w", encoding="utf-8") as f:
+            json.dump(users, f, indent=2, ensure_ascii=False)
+    except: pass
+
+def hash_pw(pw): return hashlib.sha256(pw.encode()).hexdigest()
+def check_pw(pw, h): return hash_pw(pw) == h
+def find_user(email):
+    for u in load_users():
+        if u.get("email","").lower() == email.lower(): return u
+    return None
+
+def trial_info(user):
+    try:
+        start = datetime.fromisoformat(user.get("created_at",""))
+        end = start + timedelta(days=1)
+        now = datetime.now()
+        hours_left = int((end - now).total_seconds() // 3600)
+        expired = now > end
+        return end.strftime("%Y-%m-%d %H:%M"), hours_left, expired
+    except:
+        return "-", 0, False
 
 @app.route("/")
 def home():
@@ -865,6 +902,39 @@ def site():
             return f.read(), 200, {"Content-Type": "text/html"}
     except Exception as e:
         return f"Site not found: {e}", 404
+
+@app.route("/login")
+def login_page():
+    try:
+        with open(os.path.join(app.static_folder, "login.html"), "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html"}
+    except: return redirect("/")
+@app.route("/register")
+def register_page():
+    try:
+        with open(os.path.join(app.static_folder, "register.html"), "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html"}
+    except: return redirect("/")
+@app.route("/dashboard")
+def dashboard_page():
+    if not session.get("user_id"): return redirect("/login")
+    try:
+        with open(os.path.join(app.static_folder, "dashboard.html"), "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html"}
+    except: return redirect("/")
+@app.route("/mqs-admin")
+def admin_page():
+    # hidden admin - no nav link
+    try:
+        with open(os.path.join(app.static_folder, "admin.html"), "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html"}
+    except: return "Admin not found", 404
+@app.route("/style.css")
+def style_css():
+    try:
+        with open(os.path.join(app.static_folder, "style.css"), "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/css"}
+    except: return "", 404
 
 @app.route("/health")
 def health(): return jsonify({"ok":True})
@@ -978,6 +1048,143 @@ def admin_sync():
         return jsonify({"ok":True, "clients": len(clients)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# === AUTH API (login/register/dashboard/admin) ===
+@app.route("/api/register", methods=["POST"])
+def api_register():
+    data = request.get_json() or {}
+    email = data.get("email","").strip().lower()
+    pw = data.get("password","")
+    balsa = data.get("balsa_name","").strip() or "Balsa ni Trial"
+    name = data.get("name","").strip() or "Owner"
+    gcash = data.get("gcash","").strip()
+    plan = data.get("plan","trial")
+    if not email or not pw: return jsonify({"ok":False,"error":"Email at password kailangan"}), 400
+    if len(pw) < 6: return jsonify({"ok":False,"error":"Password min 6 chars"}), 400
+    if find_user(email): return jsonify({"ok":False,"error":"Email already registered — mag-login na"}), 400
+    users = load_users()
+    uid = f"U{int(time.time())%1000000:06d}"
+    user = {"id":uid,"email":email,"password":hash_pw(pw),"name":name,"balsa_name":balsa,"gcash":gcash,"plan":plan,"created_at":datetime.now().isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":f"{3500} (7am-4pm)","capacity":"15 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":gcash or "09123456789","gcash_name":name,"contact":gcash or "09123456789","downpayment":"1000","google_maps_link":"","extra_info":""},"vacation":{"enabled":False,"until":"","reason":""}}
+    users.append(user)
+    save_users(users)
+    session["user_id"] = uid
+    session["email"] = email
+    print(f"[AUTH] Registered {email} {balsa} {plan}", flush=True)
+    return jsonify({"ok":True})
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json() or {}
+    email = data.get("email","").strip().lower()
+    pw = data.get("password","")
+    u = find_user(email)
+    if not u or not check_pw(pw, u.get("password","")):
+        return jsonify({"ok":False,"error":"Mali email o password"}), 401
+    session["user_id"] = u["id"]
+    session["email"] = u["email"]
+    return jsonify({"ok":True})
+
+@app.route("/api/oauth", methods=["POST"])
+def api_oauth():
+    data = request.get_json() or {}
+    email = data.get("email","").strip().lower()
+    provider = data.get("provider","google")
+    balsa = data.get("balsa_name","Balsa ni Trial")
+    if not email: return jsonify({"ok":False,"error":"Email kailangan"}), 400
+    u = find_user(email)
+    if not u:
+        users = load_users()
+        uid = f"U{int(time.time())%1000000:06d}"
+        u = {"id":uid,"email":email,"password":hash_pw("oauth_"+provider),"name":email.split("@")[0],"balsa_name":balsa,"gcash":"","plan":"trial","created_at":datetime.now().isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":"3500 (7am-4pm)","capacity":"15 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":"09123456789","gcash_name":email.split("@")[0],"contact":"09123456789","downpayment":"1000","google_maps_link":"","extra_info":""},"vacation":{"enabled":False,"until":"","reason":""},"oauth":provider}
+        users.append(u); save_users(users)
+        print(f"[AUTH] OAuth {provider} new {email}", flush=True)
+    session["user_id"] = u["id"]
+    session["email"] = u["email"]
+    return jsonify({"ok":True})
+
+@app.route("/api/me")
+def api_me():
+    uid = session.get("user_id")
+    if not uid: return jsonify({"ok":False,"error":"not logged"}), 401
+    users = load_users()
+    u = next((x for x in users if x["id"]==uid), None)
+    if not u: return jsonify({"ok":False,"error":"not found"}), 404
+    end, hours_left, expired = trial_info(u)
+    return jsonify({"ok":True,"user":{"email":u["email"],"plan":u.get("plan","trial"),"balsa_name":u.get("balsa_name",""),"id":u["id"]},"business":u.get("business",{}),"vacation":u.get("vacation",{}),"trial_end":end,"trial_hours_left":hours_left,"trial_expired":expired})
+
+@app.route("/api/save-business", methods=["POST"])
+def api_save_business():
+    uid = session.get("user_id")
+    if not uid: return jsonify({"ok":False,"error":"not logged"}), 401
+    data = request.get_json() or {}
+    users = load_users()
+    for u in users:
+        if u["id"]==uid:
+            # only update business + vacation (not email)
+            for k in ["name","location","price_day","capacity","inclusions","gcash_number","gcash_name","contact","downpayment","google_maps_link","extra_info"]:
+                if k in data: u["business"][k] = data[k]
+            if "vacation" in data:
+                u["vacation"] = data["vacation"]
+            save_users(users)
+            return jsonify({"ok":True})
+    return jsonify({"ok":False,"error":"not found"}), 404
+
+@app.route("/api/logout", methods=["POST"])
+def api_logout():
+    session.clear()
+    return jsonify({"ok":True})
+
+@app.route("/api/admin/login", methods=["POST"])
+def api_admin_login():
+    pw = (request.get_json() or {}).get("password","")
+    expected = os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"
+    if pw == expected:
+        session["is_admin"] = True
+        return jsonify({"ok":True})
+    return jsonify({"ok":False,"error":"Wrong admin password"}), 401
+
+@app.route("/api/admin/users")
+def api_admin_users():
+    # check admin via session or token header
+    if not session.get("is_admin") and request.headers.get("X-ADMIN-TOKEN") != (os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"):
+        return jsonify({"ok":False,"error":"unauthorized"}), 403
+    users = load_users()
+    out = []
+    stats = {"trial":0,"expired":0,"paid":0}
+    for u in users:
+        _, hl, exp = trial_info(u)
+        out.append({"id":u["id"],"email":u["email"],"balsa_name":u.get("balsa_name",""),"plan":u.get("plan","trial"),"created_at":u.get("created_at","")[:16],"trial_hours_left":hl,"trial_expired":exp})
+        if u.get("plan")=="trial" and not exp: stats["trial"]+=1
+        elif exp: stats["expired"]+=1
+        else: stats["paid"]+=1
+    return jsonify({"ok":True,"users":out,"stats":stats})
+
+@app.route("/api/admin/extend", methods=["POST"])
+def api_admin_extend():
+    if not session.get("is_admin") and request.headers.get("X-ADMIN-TOKEN") != (os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"):
+        return jsonify({"ok":False,"error":"unauthorized"}), 403
+    data = request.get_json() or {}
+    uid = data.get("user_id"); days = int(data.get("days",7))
+    users = load_users()
+    for u in users:
+        if u["id"]==uid:
+            # extend by resetting created_at forward
+            try:
+                old = datetime.fromisoformat(u.get("created_at"))
+                u["created_at"] = (old + timedelta(days=days)).isoformat()
+            except: u["created_at"] = datetime.now().isoformat()
+            save_users(users)
+            return jsonify({"ok":True})
+    return jsonify({"ok":False,"error":"not found"}), 404
+
+@app.route("/api/admin/delete", methods=["POST"])
+def api_admin_delete():
+    if not session.get("is_admin") and request.headers.get("X-ADMIN-TOKEN") != (os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"):
+        return jsonify({"ok":False,"error":"unauthorized"}), 403
+    uid = (request.get_json() or {}).get("user_id")
+    users = [u for u in load_users() if u["id"]!=uid]
+    save_users(users)
+    return jsonify({"ok":True})
 
 @app.route("/webhook", methods=["GET"])
 def verify():

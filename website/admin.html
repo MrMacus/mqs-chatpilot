@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MQS Admin — Hidden</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+.wrap{max-width:1000px;margin:20px auto;padding:0 20px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{padding:8px;border-bottom:1px solid var(--border);text-align:left}
+th{color:var(--text2);font-size:.8rem}
+.badge{padding:2px 8px;border-radius:999px;font-size:.75rem;font-weight:700}
+.badge.trial{background:#1a2e1a;color:var(--green);border:1px solid var(--green)}
+.badge.expired{background:#3a1f1f;color:#ffb4b4;border:1px solid var(--red)}
+.badge.paid{background:#1a2e3a;color:#7fb8ff;border:1px solid var(--accent2)}
+.login-box{max-width:360px;margin:60px auto;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:14px}
+.login-box input{width:100%;background:var(--card2);border:1px solid var(--border);color:var(--text);padding:11px;border-radius:10px;margin:8px 0}
+</style>
+</head>
+<body>
+<nav class="nav"><div class="nav-inner"><a class="brand" href="/"><span class="dot">●</span> MQS <strong>Admin</strong> <span class="ver">hidden</span></a><a class="btn ghost" href="/">Home</a></div></nav>
+<div id="login" class="login-box">
+  <h3>🔒 Admin Login</h3><p class="small muted">Hidden page para kay MQS TECH lang</p>
+  <input id="pass" type="password" placeholder="Admin password (SYNC_TOKEN)">
+  <button class="btn primary full" onclick="doLogin()">Login</button>
+  <p class="small muted" style="margin-top:8px">Default: mqs_sync_2026 (palitan sa Render env ADMIN_PASS)</p>
+</div>
+<div id="panel" class="wrap" style="display:none">
+  <div class="card">
+    <h3>Customers — <span id="count"></span></h3>
+    <p class="small muted">Lahat ng nag-register / trial. Click para i-manage.</p>
+    <table><thead><tr><th>Email</th><th>Balsa</th><th>Plan</th><th>Trial</th><th>Created</th><th>Action</th></tr></thead><tbody id="tbody"></tbody></table>
+  </div>
+  <div class="card">
+    <h3>Stats</h3>
+    <div id="stats" class="small muted"></div>
+  </div>
+</div>
+<script>
+let token='';
+async function doLogin(){
+  const p=document.getElementById('pass').value;
+  const r=await fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})});
+  const j=await r.json();
+  if(j.ok){ token=p; document.getElementById('login').style.display='none'; document.getElementById('panel').style.display='block'; load(); } else alert(j.error||'Wrong password');
+}
+async function load(){
+  const r=await fetch('/api/admin/users',{headers:{'X-ADMIN-TOKEN':token}});
+  const j=await r.json();
+  if(!j.ok) return alert(j.error);
+  document.getElementById('count').textContent=j.users.length;
+  const tb=document.getElementById('tbody'); tb.innerHTML='';
+  j.users.forEach(u=>{
+    const tr=document.createElement('tr');
+    const badge = u.trial_expired ? '<span class="badge expired">expired</span>' : '<span class="badge trial">'+u.trial_hours_left+'h left</span>';
+    const planBadge = u.plan==='trial' ? badge : '<span class="badge paid">'+u.plan+'</span>';
+    tr.innerHTML=`<td>${u.email}</td><td>${u.balsa_name}</td><td>${planBadge}</td><td>${u.trial_expired?'expired':u.trial_hours_left+'h'}</td><td>${u.created_at}</td><td><button onclick="ext('${u.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--card2);color:var(--text);cursor:pointer">+7 days</button> <button onclick="del('${u.id}')" style="padding:4px 8px;border-radius:6px;background:var(--red);color:#fff;border:none;cursor:pointer">Del</button></td>`;
+    tb.appendChild(tr);
+  });
+  document.getElementById('stats').textContent='Total: '+j.users.length+' • Trial: '+j.stats.trial+' • Expired: '+j.stats.expired+' • Paid: '+j.stats.paid;
+}
+async function ext(id){
+  const r=await fetch('/api/admin/extend',{method:'POST',headers:{'Content-Type':'application/json','X-ADMIN-TOKEN':token},body:JSON.stringify({user_id:id, days:7})});
+  const j=await r.json(); if(j.ok) load(); else alert(j.error);
+}
+async function del(id){
+  if(!confirm('Delete user?')) return;
+  const r=await fetch('/api/admin/delete',{method:'POST',headers:{'Content-Type':'application/json','X-ADMIN-TOKEN':token},body:JSON.stringify({user_id:id})});
+  const j=await r.json(); if(j.ok) load(); else alert(j.error);
+}
+</script>
+</body>
+</html>

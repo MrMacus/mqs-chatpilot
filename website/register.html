@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Register Free Trial — MQS ChatPilot</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+.auth-page{max-width:480px;margin:30px auto;padding:20px}
+.auth-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px}
+.auth-card h2{margin-bottom:4px}
+.auth-card .sub{color:var(--text2);font-size:.9rem;margin-bottom:16px}
+.auth-card label{font-size:.85rem;color:var(--text2);display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.auth-card input,.auth-card select{background:var(--card2);border:1px solid var(--border);color:var(--text);padding:11px;border-radius:10px;font-size:.95rem}
+.divider{display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--text2);font-size:.85rem}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--border)}
+.oauth{display:flex;gap:8px}
+.oauth button{flex:1;padding:11px;border-radius:10px;font-weight:700;cursor:pointer;border:1px solid var(--border)}
+.oauth .g{background:var(--card2);color:var(--text)}
+.oauth .f{background:#1877F2;color:#fff;border:none}
+.err{background:#3a1f1f;border:1px solid var(--red);color:#ffb4b4;padding:8px;border-radius:8px;font-size:.85rem;display:none;margin-bottom:10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+</style>
+</head>
+<body>
+<nav class="nav"><div class="nav-inner"><a class="brand" href="/"><span class="dot">●</span> MQS <strong>ChatPilot</strong></a><div class="nav-links"><a href="/">Home</a></div><div class="nav-cta"><a class="btn ghost" href="/login">Login</a></div></div></nav>
+<div class="auth-page">
+  <div class="auth-card">
+    <h2>Start Free Trial — 1 Day</h2><p class="sub">Full features, 1 balsa. After 24 hours, tatanungin ka kung gusto mo mag-avail (monthly). No card.</p>
+    <div id="err" class="err"></div>
+    <div class="grid2">
+      <label>Balsa Name <input id="balsa" placeholder="Balsa ni Mac"></label>
+      <label>Owner Name <input id="name" placeholder="Mac David"></label>
+    </div>
+    <label>Email <input id="email" type="email" placeholder="juan@gmail.com"></label>
+    <label>Password <input id="pass" type="password" placeholder="min 6 chars"></label>
+    <label>GCash Number <input id="gcash" placeholder="09123456789"></label>
+    <label>Plan
+      <select id="plan">
+        <option value="trial">Trial 1 Day — ₱0</option>
+        <option value="starter">Starter 1 Balsa — ₱299 / mo</option>
+        <option value="pro">Pro 3 Balsa — ₱699 / mo</option>
+        <option value="resort">Resort 10 Balsa — ₱1,299 / mo</option>
+      </select>
+    </label>
+    <button class="btn primary full" onclick="doReg()">Create Account & Start Trial →</button>
+    <div class="divider">or</div>
+    <div class="oauth">
+      <button class="g" onclick="oauth('google')">🔵 Google</button>
+      <button class="f" onclick="oauth('facebook')">ⓕ Facebook</button>
+    </div>
+    <p class="small" style="margin-top:12px;text-align:center">May account na? <a href="/login" style="color:var(--accent2);text-decoration:underline">Login</a></p>
+  </div>
+</div>
+<script>
+function showErr(m){const e=document.getElementById('err');e.textContent=m;e.style.display='block'}
+async function doReg(){
+  const body={balsa_name:document.getElementById('balsa').value.trim(), name:document.getElementById('name').value.trim(), email:document.getElementById('email').value.trim(), password:document.getElementById('pass').value, gcash:document.getElementById('gcash').value.trim(), plan:document.getElementById('plan').value};
+  if(!body.email||!body.password||!body.balsa_name) return showErr('Lagay balsa name, email, password');
+  if(body.password.length<6) return showErr('Password min 6 chars');
+  const r=await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json();
+  if(j.ok){ alert('Trial started! 1 day — after 24h tatanungin ka kung mag-avail.'); location.href='/dashboard'; } else showErr(j.error||'Register failed');
+}
+async function oauth(p){
+  const email=prompt('Mock '+p+' register — lagay email mo:');
+  if(!email) return;
+  const balsa=prompt('Balsa name?')||'Balsa ni Trial';
+  const r=await fetch('/api/oauth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:p, email, balsa_name:balsa})});
+  const j=await r.json();
+  if(j.ok) location.href='/dashboard'; else showErr(j.error||'OAuth failed');
+}
+</script>
+</body>
+</html>
