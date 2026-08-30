@@ -876,14 +876,40 @@ def find_user(email):
 
 def trial_info(user):
     try:
-        start = datetime.fromisoformat(user.get("created_at",""))
-        end = start + timedelta(days=1)
         now = datetime.now()
+        # support explicit trial_end (for extends), else fallback to 1 day from created_at
+        if user.get("trial_end"):
+            end = datetime.fromisoformat(user["trial_end"])
+        else:
+            start = datetime.fromisoformat(user.get("created_at",""))
+            end = start + timedelta(days=1)
         hours_left = int((end - now).total_seconds() // 3600)
         expired = now > end
+        # also return days for display
         return end.strftime("%Y-%m-%d %H:%M"), hours_left, expired
     except:
         return "-", 0, False
+
+def set_trial_end(user, days=1):
+    # set trial_end to now + days (for new) or extend existing
+    try:
+        if user.get("trial_end"):
+            end = datetime.fromisoformat(user["trial_end"])
+            # if still active, extend from end, else from now
+            base = end if end > datetime.now() else datetime.now()
+            user["trial_end"] = (base + timedelta(days=days)).isoformat()
+        else:
+            start = datetime.fromisoformat(user.get("created_at",""))
+            end = start + timedelta(days=1)
+            base = end if end > datetime.now() else datetime.now()
+            user["trial_end"] = (base + timedelta(days=days)).isoformat() if days != 1 else end.isoformat()
+            # for new user with 1 day, keep created logic but also store
+            if days == 1 and not user.get("trial_end"):
+                user["trial_end"] = end.isoformat()
+        # keep trial_days for display
+        user["trial_days"] = user.get("trial_days", 1)
+    except:
+        user["trial_end"] = (datetime.now() + timedelta(days=days)).isoformat()
 
 @app.route("/")
 def home():
@@ -1064,12 +1090,13 @@ def api_register():
     if find_user(email): return jsonify({"ok":False,"error":"Email already registered — mag-login na"}), 400
     users = load_users()
     uid = f"U{int(time.time())%1000000:06d}"
-    user = {"id":uid,"email":email,"password":hash_pw(pw),"name":name,"balsa_name":balsa,"gcash":gcash,"plan":plan,"created_at":datetime.now().isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":f"{3500} (7am-4pm)","capacity":"15 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":gcash or "09123456789","gcash_name":name,"contact":gcash or "09123456789","downpayment":"1000","google_maps_link":"","extra_info":""},"vacation":{"enabled":False,"until":"","reason":""}}
+    now = datetime.now()
+    user = {"id":uid,"email":email,"password":hash_pw(pw),"name":name,"balsa_name":balsa,"gcash":gcash,"plan":plan,"created_at":now.isoformat(),"trial_end": (now + timedelta(days=1)).isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":f"{3500} (7am-4pm)","capacity":"15 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":gcash or "09123456789","gcash_name":name,"contact":gcash or "09123456789","downpayment":"1000","google_maps_link":"","extra_info":""},"vacation":{"enabled":False,"until":"","reason":""}}
     users.append(user)
     save_users(users)
     session["user_id"] = uid
     session["email"] = email
-    print(f"[AUTH] Registered {email} {balsa} {plan}", flush=True)
+    print(f"[AUTH] Registered {email} {balsa} {plan} trial_end {user['trial_end']}", flush=True)
     return jsonify({"ok":True})
 
 @app.route("/api/login", methods=["POST"])
@@ -1095,7 +1122,8 @@ def api_oauth():
     if not u:
         users = load_users()
         uid = f"U{int(time.time())%1000000:06d}"
-        u = {"id":uid,"email":email,"password":hash_pw("oauth_"+provider),"name":email.split("@")[0],"balsa_name":balsa,"gcash":"","plan":"trial","created_at":datetime.now().isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":"3500 (7am-4pm)","capacity":"15 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":"09123456789","gcash_name":email.split("@")[0],"contact":"09123456789","downpayment":"1000","google_maps_link":"","extra_info":""},"vacation":{"enabled":False,"until":"","reason":""},"oauth":provider}
+        now = datetime.now()
+        u = {"id":uid,"email":email,"password":hash_pw("oauth_"+provider),"name":email.split("@")[0],"balsa_name":balsa,"gcash":"","plan":"trial","created_at":now.isoformat(),"trial_end": (now + timedelta(days=1)).isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":"3500 (7am-4pm)","capacity":"15 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":"09123456789","gcash_name":email.split("@")[0],"contact":"09123456789","downpayment":"1000","google_maps_link":"","extra_info":""},"vacation":{"enabled":False,"until":"","reason":""},"oauth":provider}
         users.append(u); save_users(users)
         print(f"[AUTH] OAuth {provider} new {email}", flush=True)
     session["user_id"] = u["id"]
@@ -1168,13 +1196,22 @@ def api_admin_extend():
     users = load_users()
     for u in users:
         if u["id"]==uid:
-            # extend by resetting created_at forward
+            # extend trial_end (if expired, from now, else from current end)
             try:
-                old = datetime.fromisoformat(u.get("created_at"))
-                u["created_at"] = (old + timedelta(days=days)).isoformat()
-            except: u["created_at"] = datetime.now().isoformat()
+                if u.get("trial_end"):
+                    end = datetime.fromisoformat(u["trial_end"])
+                    base = end if end > datetime.now() else datetime.now()
+                    u["trial_end"] = (base + timedelta(days=days)).isoformat()
+                else:
+                    start = datetime.fromisoformat(u.get("created_at"))
+                    end = start + timedelta(days=1)
+                    base = end if end > datetime.now() else datetime.now()
+                    u["trial_end"] = (base + timedelta(days=days)).isoformat()
+            except:
+                u["trial_end"] = (datetime.now() + timedelta(days=days)).isoformat()
             save_users(users)
-            return jsonify({"ok":True})
+            print(f"[ADMIN] Extended {u['email']} +{days}d new end {u['trial_end']}", flush=True)
+            return jsonify({"ok":True, "new_end": u["trial_end"]})
     return jsonify({"ok":False,"error":"not found"}), 404
 
 @app.route("/api/admin/delete", methods=["POST"])

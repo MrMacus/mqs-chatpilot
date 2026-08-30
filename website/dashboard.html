@@ -90,12 +90,14 @@ async function loadMe(){
   document.getElementById('vac_on').checked=j.vacation.enabled; document.getElementById('vac_until').value=j.vacation.until||''; document.getElementById('vac_reason').value=j.vacation.reason||'';
   document.getElementById('plan').textContent=j.user.plan; document.getElementById('trial_end').textContent=j.trial_end;
   const banner=document.getElementById('banner');
+  // format hours -> days + hours if >24
+  function fmt(h){ if(h<=24) return h+'h left'; const d=Math.floor(h/24), rh=h%24; return d+'d '+(rh?rh+'h':'')+' left'; }
   if(j.trial_expired){
-    banner.className='banner expired'; banner.style.display='block'; banner.innerHTML='⏰ Your 1-day trial has expired! Did you like it? <a href="#" onclick="showBilling()" style="color:#fff;text-decoration:underline">Upgrade — ₱299/mo</a> • Contact MQS TECH';
+    banner.className='banner expired'; banner.style.display='block'; banner.innerHTML='⏰ Your trial has expired! Did you like it? <a href="#" onclick="showBilling()" style="color:#fff;text-decoration:underline">Upgrade — ₱299/mo</a> • Contact MQS TECH';
   } else if(j.trial_hours_left<=6){
-    banner.style.display='block'; banner.innerHTML='⏰ Your trial ends in '+j.trial_hours_left+'h — want to continue? <a href="#" onclick="showBilling()" style="color:#fff;text-decoration:underline">Choose a plan</a>';
+    banner.style.display='block'; banner.innerHTML='⏰ Your trial ends in '+fmt(j.trial_hours_left)+' — want to continue? <a href="#" onclick="showBilling()" style="color:#fff;text-decoration:underline">Choose a plan</a>';
   } else {
-    banner.style.display='block'; banner.textContent='✅ Trial active — '+j.trial_hours_left+'h left (1 day trial). After 24 hours we’ll ask if you want to continue.';
+    banner.style.display='block'; banner.textContent='✅ Trial active — '+fmt(j.trial_hours_left)+' left (ends '+j.trial_end+'). We’ll ask after expiry if you want to continue.';
   }
 }
 function showBilling(){ document.getElementById('billing').style.display='block'; document.getElementById('billing').scrollIntoView({behavior:'smooth'}); }
