@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="tl">
+<html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Register Free Trial — MQS ChatPilot</title>
@@ -20,6 +20,7 @@
 .oauth .f{background:#1877F2;color:#fff;border:none}
 .err{background:#3a1f1f;border:1px solid var(--red);color:#ffb4b4;padding:8px;border-radius:8px;font-size:.85rem;display:none;margin-bottom:10px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:600px){ .auth-page{padding:12px;margin:16px auto} .auth-card{padding:16px} .grid2{grid-template-columns:1fr} .auth-card input,.auth-card select{font-size:16px} }
 </style>
 </head>
 <body>
@@ -30,7 +31,7 @@
     <div id="err" class="err"></div>
     <div class="grid2">
       <label>Balsa / Business Name <input id="balsa" placeholder="Enter your business name"></label>
-      <label>Full Name <input id="name" placeholder="Enter your fullname here"></label>
+      <label>Full Name <input id="name" placeholder="Enter your full name"></label>
     </div>
     <label>Email <input id="email" type="email" placeholder="Enter your email address"></label>
     <label>Password <input id="pass" type="password" placeholder="Enter your password (min 6 characters)"></label>
