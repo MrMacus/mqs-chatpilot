@@ -87,7 +87,14 @@ DEFAULT_CONFIG = {
         "food_package": "Not available - bring your own food",
         "food_price": "",
         "buddle_price": "",
-        "cancellation_policy": "No refund sa downpayment kung cancel 1 day before."
+        "cancellation_policy": "No refund sa downpayment kung cancel 1 day before.",
+        "pricing_tiers": "[{\"min\":10,\"max\":15,\"price\":4500,\"label\":\"10-15 pax\"},{\"min\":16,\"max\":20,\"price\":5000,\"label\":\"16-20 pax\"}]",
+        "seasonal_enabled": "false",
+        "seasonal_pricing": "{\"rainy\":{\"months\":[6,7,8,9,10],\"label\":\"Rainy Season Promo\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":4000},{\"min\":16,\"max\":20,\"price\":4500}]},\"summer\":{\"months\":[3,4,5],\"label\":\"Summer Peak\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":5000},{\"min\":16,\"max\":20,\"price\":6000}]}}",
+        "promo_enabled": "false",
+        "promo_name": "Rainy Season Promo",
+        "promo_discount": "500",
+        "promo_until": ""
     },
     "ai_system_prompt": "Ikaw ay friendly parang tao assistant ni {name} sa {location}. Taglish, may po. Day Tour ONLY {price_day} 7am-4pm WALANG overnight. Capacity {capacity}, Inclusions {inclusions}, Maps {google_maps_link}, DTI {dti_permit_url}, Photos {balsa_photos_url}, Contact {contact}, GCash {gcash_number} ({gcash_name}) Down {downpayment}."
 }
@@ -142,6 +149,65 @@ class CCPTMessengerBot(ctk.CTk):
             self.wm_attributes('-transparentcolor', 'black')
         except: pass
         self._start_reminder_loop()
+
+    # ---------- PRICING ENGINE (tiered + seasonal) ----------
+    def get_price_for_pax(self, pax_str, date_str=""):
+        biz = self.config_data.get("business_info",{})
+        try:
+            pax = int(re.search(r"\d+", str(pax_str or "")).group(0)) if re.search(r"\d+", str(pax_str or "")) else 0
+        except: pax = 0
+        try:
+            if str(biz.get("seasonal_enabled","false")).lower() == "true":
+                import json as _js2
+                seasonal = _js2.loads(biz.get("seasonal_pricing","{}") or "{}")
+                mth = None
+                if date_str:
+                    d = self.parse_booking_date_local(date_str)
+                    if d: mth = d.month
+                    if not mth:
+                        for k,v in {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}.items():
+                            if k in str(date_str).lower(): mth = v; break
+                if not mth:
+                    import datetime as _dt2
+                    mth = _dt2.datetime.now().month
+                for sname, sdata in seasonal.items():
+                    if mth in sdata.get("months",[]):
+                        for tier in sdata.get("tiers",[]):
+                            if tier.get("min",0) <= pax <= tier.get("max",999):
+                                return int(tier["price"]), f"{tier['min']}-{tier['max']} pax {sdata.get('label','')}", sdata.get("label","")
+                        if sdata.get("tiers"):
+                            t = sdata["tiers"][0]
+                            return int(t["price"]), f"{t['min']}-{t['max']} pax {sdata.get('label','')}", sdata.get("label","")
+        except: pass
+        try:
+            import json as _js3
+            tiers = _js3.loads(biz.get("pricing_tiers","") or "[]")
+            for tier in tiers:
+                if tier.get("min",0) <= pax <= tier.get("max",999):
+                    return int(tier["price"]), tier.get("label", f"{tier['min']}-{tier['max']} pax"), ""
+            if tiers:
+                t = tiers[-1]
+                return int(t["price"]), t.get("label", f"{t['min']}-{t['max']} pax"), ""
+        except: pass
+        try: return int(re.sub(r"\D","", str(biz.get("price_day_amount","3500"))) or 3500), biz.get("capacity","15 pax"), ""
+        except: return 3500, "Day Tour", ""
+
+    def format_pricing_for_ai(self):
+        biz = self.config_data.get("business_info",{})
+        try:
+            import json as _js
+            if str(biz.get("seasonal_enabled","false")).lower() == "true":
+                seasonal = _js.loads(biz.get("seasonal_pricing","{}") or "{}")
+                parts = []
+                for sname, sdata in seasonal.items():
+                    tiers = ", ".join([f"{t['min']}-{t['max']}pax=P{t['price']}" for t in sdata.get("tiers",[])])
+                    parts.append(f"{sdata.get('label',sname)} ({','.join([str(m) for m in sdata.get('months',[])])}): {tiers}")
+                return " | ".join(parts) + f" | Down P{biz.get('downpayment','1000')}"
+            tiers = _js.loads(biz.get("pricing_tiers","") or "[]")
+            if tiers:
+                return ", ".join([f"{t.get('label', str(t['min'])+'-'+str(t['max'])+' pax')}=P{t['price']}" for t in tiers]) + f" | Down P{biz.get('downpayment','1000')}"
+        except: pass
+        return f"P{biz.get('price_day_amount','3500')} Day Tour 7am-4pm | Down P{biz.get('downpayment','1000')}"
 
     # ---------- CONFIG & BOOKINGS ----------
     def load_config(self):
@@ -535,7 +601,10 @@ class CCPTMessengerBot(ctk.CTk):
 
     def create_inquiry(self, sender_id, date, pax, name, contact, tour_type="Day Tour"):
         biz = self.config_data["business_info"]
-        price = biz.get("price_day_amount", "3500")
+        try:
+            price, _, _ = self.get_price_for_pax(pax, date)
+            price = str(price)
+        except: price = biz.get("price_day_amount", "3500")
         inquiry = {
             "id": f"INQ{int(time.time())%100000:05d}",
             "customer_fb_id": sender_id,
@@ -565,13 +634,17 @@ class CCPTMessengerBot(ctk.CTk):
 
     def create_pending_booking(self, sender_id, date, pax, name, contact, tour_type="Day Tour"): 
         biz = self.config_data["business_info"]
-        # determine price
-        if "night" in tour_type.lower():
-            price = biz.get("price_night_amount", "4500")
-        elif "22" in tour_type:
-            price = biz.get("price_22hrs", "7000")
-        else:
-            price = biz.get("price_day_amount", "3500")
+        # tiered + seasonal price first
+        try:
+            price_tier, _, _ = self.get_price_for_pax(pax, date)
+            price = str(price_tier)
+        except:
+            if "night" in tour_type.lower():
+                price = biz.get("price_night_amount", "4500")
+            elif "22" in tour_type:
+                price = biz.get("price_22hrs", "7000")
+            else:
+                price = biz.get("price_day_amount", "3500")
         booking = {
             "id": f"BK{int(time.time())%100000:05d}",
             "customer_fb_id": sender_id,
@@ -792,6 +865,11 @@ class CCPTMessengerBot(ctk.CTk):
             ("buddle_price", "Buddle Price (e.g., 1500)"),
             ("extra_info", "Extra Info"),
             ("cancellation_policy", "Cancellation Policy"),
+            ("pricing_tiers", "Pricing Tiers JSON (10-15pax/16-20pax)"),
+            ("seasonal_enabled", "Seasonal Enabled (true/false)"),
+            ("seasonal_pricing", "Seasonal Pricing JSON (rainy/summer)"),
+            ("promo_enabled", "Promo Enabled (true/false)"),
+            ("promo_name", "Promo Name (e.g., Rainy Season Promo)"),
         ]
         for key, label in fields:
             ctk.CTkLabel(scroll, text=label, font=("Segoe UI", 11), text_color=COLORS["text2"]).pack(anchor="w", padx=4, pady=(6,0))
@@ -1281,9 +1359,15 @@ class CCPTMessengerBot(ctk.CTk):
         pending = sum(1 for b in self.bookings if b.get("status")=="PENDING_PAYMENT")
         inquiry = sum(1 for b in self.bookings if b.get("status")=="INQUIRY")
         cancelled = sum(1 for b in self.bookings if b.get("status")=="CANCELLED")
-        revenue_confirmed = confirmed * price
-        revenue_paid = paid * down
-        revenue_total = revenue_confirmed + revenue_paid
+        # tiered revenue: sum actual booking prices for confirmed, down for paid
+        try:
+            revenue_confirmed = sum(int(re.sub(r"\D","", str(b.get("price","0"))) or 0) for b in self.bookings if b.get("status")=="CONFIRMED")
+            revenue_paid = sum(int(re.sub(r"\D","", str(b.get("downpayment", str(down))) or 0) for b in self.bookings if b.get("status")=="PAID_AWAITING_CONFIRM"))
+            revenue_total = revenue_confirmed + revenue_paid
+        except:
+            revenue_confirmed = confirmed * price
+            revenue_paid = paid * down
+            revenue_total = revenue_confirmed + revenue_paid
         from collections import Counter
         dates = Counter(b.get("date","") for b in self.bookings if b.get("date") and b.get("status") not in ["CANCELLED"])
         peak_date, peak_count = dates.most_common(1)[0] if dates else ("-",0)

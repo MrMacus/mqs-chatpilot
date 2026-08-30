@@ -67,7 +67,14 @@ if not clients and _env_page:
                 "dti_permit_url": "https://drive.google.com/permit",
                 "extra_info": "Day Tour 7am-4pm",
                 "cancellation_policy": "No refund 1 day before",
-                "owner_fb_id": ""
+                "owner_fb_id": "",
+                "pricing_tiers": "[{\"min\":10,\"max\":15,\"price\":4500,\"label\":\"10-15 pax\"},{\"min\":16,\"max\":20,\"price\":5000,\"label\":\"16-20 pax\"}]",
+                "seasonal_enabled": "false",
+                "seasonal_pricing": "{\"rainy\":{\"months\":[6,7,8,9,10],\"label\":\"Rainy Season Promo\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":4000},{\"min\":16,\"max\":20,\"price\":4500}]},\"summer\":{\"months\":[3,4,5],\"label\":\"Summer Peak\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":5000},{\"min\":16,\"max\":20,\"price\":6000}]}}",
+                "promo_enabled": "false",
+                "promo_name": "Rainy Season Promo",
+                "promo_discount": "500",
+                "promo_until": ""
             },
             "ai_system_prompt": ""
         }
@@ -141,6 +148,73 @@ def parse_booking_date(date_str):
                 except: return _dt.date(y, v, d)
             except: pass
     return None
+
+def get_price_for_pax(biz, pax_str, date_str=""):
+    """Tiered + seasonal pricing. Returns (price_int, label, season_name). Example: 4500 for 10-15 rainy, 5000 for 16-20 summer"""
+    try:
+        pax = int(re.search(r"\d+", str(pax_str or "")).group(0)) if re.search(r"\d+", str(pax_str or "")) else 0
+    except: pax = 0
+    # try seasonal first
+    try:
+        if str(biz.get("seasonal_enabled","false")).lower() == "true":
+            import json as _js2, datetime as _dt2
+            seasonal = _js2.loads(biz.get("seasonal_pricing","{}") or "{}")
+            # get month from date_str
+            mth = None
+            if date_str:
+                d = parse_booking_date(date_str)
+                if d: mth = d.month
+                if not mth:
+                    # try parse Aug 30 etc
+                    import re as _re2
+                    for k,v in {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}.items():
+                        if k in str(date_str).lower():
+                            mth = v; break
+            if not mth: mth = datetime.now().month
+            for sname, sdata in seasonal.items():
+                months = sdata.get("months",[])
+                if mth in months:
+                    for tier in sdata.get("tiers",[]):
+                        if tier.get("min",0) <= pax <= tier.get("max",999):
+                            return int(tier["price"]), f"{tier['min']}-{tier['max']} pax {sdata.get('label','')}", sdata.get("label","")
+                    # fallback to first tier if pax not in range
+                    if sdata.get("tiers"):
+                        t = sdata["tiers"][0]
+                        return int(t["price"]), f"{t['min']}-{t['max']} pax {sdata.get('label','')}", sdata.get("label","")
+    except: pass
+    # tiered
+    try:
+        import json as _js3
+        tiers = _js3.loads(biz.get("pricing_tiers","") or "[]")
+        for tier in tiers:
+            if tier.get("min",0) <= pax <= tier.get("max",999):
+                return int(tier["price"]), tier.get("label", f"{tier['min']}-{tier['max']} pax"), ""
+        if tiers:
+            # if pax out of range, use last tier
+            t = tiers[-1]
+            return int(t["price"]), t.get("label", f"{t['min']}-{t['max']} pax"), ""
+    except: pass
+    # fallback to simple price_day_amount
+    try: return int(re.sub(r"\D","", str(biz.get("price_day_amount","3500"))) or 3500), biz.get("capacity","15 pax"), ""
+    except: return 3500, "Day Tour", ""
+
+def format_pricing_for_ai(biz):
+    """Build pricing string for AI system prompt"""
+    try:
+        import json as _js
+        if str(biz.get("seasonal_enabled","false")).lower() == "true":
+            seasonal = _js.loads(biz.get("seasonal_pricing","{}") or "{}")
+            parts = []
+            for sname, sdata in seasonal.items():
+                tiers = ", ".join([f"{t['min']}-{t['max']}pax=P{t['price']}" for t in sdata.get("tiers",[])])
+                months = ",".join([str(m) for m in sdata.get("months",[])])
+                parts.append(f"{sdata.get('label',sname)} (months {months}): {tiers}")
+            return " | ".join(parts) + f" | Default down P{biz.get('downpayment','1000')} GCash {biz.get('gcash_number','')}"
+        tiers = _js.loads(biz.get("pricing_tiers","") or "[]")
+        if tiers:
+            return ", ".join([f"{t.get('label', str(t['min'])+'-'+str(t['max'])+' pax')}=P{t['price']}" for t in tiers]) + f" | Down P{biz.get('downpayment','1000')}"
+    except: pass
+    return f"P{biz.get('price_day_amount','3500')} Day Tour 7am-4pm | Down P{biz.get('downpayment','1000')}"
 
 def run_reminders_and_reviews():
     """Check bookings for tomorrow (reminder) and yesterday (review). Uses Meta MESSAGE_TAG."""
@@ -558,16 +632,19 @@ def call_ai(api_key, biz, history, text, user_name):
     if not api_key: return None
     keys = [k.strip() for k in api_key.split(",") if k.strip()]
     if not keys: return None
+    pricing_str = format_pricing_for_ai(biz) if 'format_pricing_for_ai' in globals() else f"P{biz.get('price_day_amount','3500')}"
     system_instruction = (
         f"You are the friendly and cheerful chat assistant of {biz.get('name')} located in {biz.get('location')}. "
         f"The user's name is {user_name}. "
+        f"Pricing (USE THIS for quoting, seasonal & tiered): {pricing_str}. "
         f"Rules:\n"
         f"1. **Language Matching:** Match the language used by the customer. If they speak Tagalog/Taglish, reply in Tagalog/Taglish. If they speak English, reply in fluent English.\n"
         f"2. **Greetings:** ONLY greet with 'Hello Mam/Sir {user_name}' if it is the VERY FIRST message (history length 1-2). In the middle of conversation, DO NOT greet again, just answer directly.\n"
         f"3. **Direct & Specific Answers (STRICT):** Sagutin LANG ang eksaktong tinatanong ng customer. HUWAG magsasama ng presyo, oras, o inclusions kung ang tinatanong lang ay kung ilan ang kasya (capacity). Halimbawa, kung tinanong kung ilan ang kasya, sabihin lang na good for {biz.get('capacity')} at huwag nang magbanggit ng rate o oras hangga't hindi tinatanong.\n"
-        f"4. **No Entrance Fee:** Walang hiwalay na entrance fee sa balsa. Ang meron ay ang package rate na P{biz.get('price_day_amount')} para sa Day Tour (7:00 AM - 4:00 PM) na kasama na ang {biz.get('inclusions')}. May hiwalay lang na ecological fee (mga P30) sa port/munisipyo.\n"
-        f"5. **No Premature Downpayment:** DO NOT mention downpayment or GCash when they are just asking about capacity, entrance fees, rates, availability dates, inclusions, food, or headcount. Answer their specific questions directly first.\n"
-        f"6. **Booking Confirmation Only:** Only mention the P{biz.get('downpayment')} downpayment and GCash details ({biz.get('gcash_number')} - {biz.get('gcash_name')}) at the very end when they explicitly confirm they want to book.\n"
+        f"4. **Tiered Pricing:** Quote per pax & season. Example: 4500 for 10-15pax, 5000 for 16-20pax. Rainy promo cheaper, Summer higher. Use the Pricing line above. If customer says 16 pax, quote the 16-20 tier. If rainy month, use rainy tier.\n"
+        f"5. **No Entrance Fee:** Walang hiwalay na entrance fee sa balsa. Ang meron ay ang package rate (see Pricing) para sa Day Tour (7:00 AM - 4:00 PM) na kasama na ang {biz.get('inclusions')}. May hiwalay lang na ecological fee (mga P30) sa port/munisipyo.\n"
+        f"6. **No Premature Downpayment:** DO NOT mention downpayment or GCash when they are just asking about capacity, entrance fees, rates, availability dates, inclusions, food, or headcount. Answer their specific questions directly first.\n"
+        f"7. **Booking Confirmation Only:** Only mention the P{biz.get('downpayment')} downpayment and GCash details ({biz.get('gcash_number')} - {biz.get('gcash_name')}) at the very end when they explicitly confirm they want to book.\n"
         f"7. **Day Tour Only:** Day Tour only (7:00 AM - 4:00 PM). No overnight stay.\n"
         f"8. **Location / Address Inquiry:** Kapag nagtanong lang ang customer ng 'location po?' o 'saan kayo?', sabihin na kami ay matatagpuan sa {biz.get('location')} at ibigay ang Google Maps link: {biz.get('google_maps_link')}.\n"
         f"9. **No Repetitive Greetings:** DO NOT include repetitive 'Hello po!' or fresh greetings in the middle of an ongoing conversation.\n"
@@ -819,9 +896,14 @@ def get_dashboard_stats_for_client(client):
     pending = sum(1 for b in bookings if b.get("status")=="PENDING_PAYMENT")
     inquiry = sum(1 for b in bookings if b.get("status")=="INQUIRY")
     cancelled = sum(1 for b in bookings if b.get("status")=="CANCELLED")
-    revenue_confirmed = confirmed * price
-    revenue_paid = paid * down  # downpayment only until confirmed
-    revenue_total = revenue_confirmed + revenue_paid
+    try:
+        revenue_confirmed = sum(int(re.sub(r"\D","", str(b.get("price","0"))) or 0) for b in bookings if b.get("status")=="CONFIRMED")
+        revenue_paid = sum(int(re.sub(r"\D","", str(b.get("downpayment", str(down))) or 0) for b in bookings if b.get("status")=="PAID_AWAITING_CONFIRM"))
+        revenue_total = revenue_confirmed + revenue_paid
+    except:
+        revenue_confirmed = confirmed * price
+        revenue_paid = paid * down
+        revenue_total = revenue_confirmed + revenue_paid
     # peak date
     from collections import Counter
     dates = Counter(b.get("date","") for b in bookings if b.get("date") and b.get("status") not in ["CANCELLED"])
@@ -1147,7 +1229,7 @@ def api_register():
     users = load_users()
     uid = f"U{int(time.time())%1000000:06d}"
     now = datetime.now()
-    user = {"id":uid,"email":email,"password":hash_pw(pw),"name":name,"balsa_name":balsa,"gcash":gcash,"plan":plan,"created_at":now.isoformat(),"trial_end": (now + timedelta(days=1)).isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":f"{3500} (7am-4pm)","capacity":"15 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":gcash or "09123456789","gcash_name":name,"contact":gcash or "09123456789","downpayment":"1000","google_maps_link":"","extra_info":""},"vacation":{"enabled":False,"until":"","reason":""}}
+    user = {"id":uid,"email":email,"password":hash_pw(pw),"name":name,"balsa_name":balsa,"gcash":gcash,"plan":plan,"created_at":now.isoformat(),"trial_end": (now + timedelta(days=1)).isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":f"{3500} (7am-4pm)","capacity":"15-20 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":gcash or "09123456789","gcash_name":name,"contact":gcash or "09123456789","downpayment":"1000","google_maps_link":"","extra_info":"","pricing_tiers": "[{\"min\":10,\"max\":15,\"price\":4500,\"label\":\"10-15 pax\"},{\"min\":16,\"max\":20,\"price\":5000,\"label\":\"16-20 pax\"}]","seasonal_enabled":"false","seasonal_pricing": "{\"rainy\":{\"months\":[6,7,8,9,10],\"label\":\"Rainy Season Promo\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":4000},{\"min\":16,\"max\":20,\"price\":4500}]},\"summer\":{\"months\":[3,4,5],\"label\":\"Summer Peak\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":5000},{\"min\":16,\"max\":20,\"price\":6000}]}}"},"vacation":{"enabled":False,"until":"","reason":""}}
     users.append(user)
     save_users(users)
     session["user_id"] = uid
@@ -1179,7 +1261,7 @@ def api_oauth():
         users = load_users()
         uid = f"U{int(time.time())%1000000:06d}"
         now = datetime.now()
-        u = {"id":uid,"email":email,"password":hash_pw("oauth_"+provider),"name":email.split("@")[0],"balsa_name":balsa,"gcash":"","plan":"trial","created_at":now.isoformat(),"trial_end": (now + timedelta(days=1)).isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":"3500 (7am-4pm)","capacity":"15 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":"09123456789","gcash_name":email.split("@")[0],"contact":"09123456789","downpayment":"1000","google_maps_link":"","extra_info":""},"vacation":{"enabled":False,"until":"","reason":""},"oauth":provider}
+        u = {"id":uid,"email":email,"password":hash_pw("oauth_"+provider),"name":email.split("@")[0],"balsa_name":balsa,"gcash":"","plan":"trial","created_at":now.isoformat(),"trial_end": (now + timedelta(days=1)).isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":"3500 (7am-4pm)","capacity":"15-20 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":"09123456789","gcash_name":email.split("@")[0],"contact":"09123456789","downpayment":"1000","google_maps_link":"","extra_info":"","pricing_tiers": "[{\"min\":10,\"max\":15,\"price\":4500,\"label\":\"10-15 pax\"},{\"min\":16,\"max\":20,\"price\":5000,\"label\":\"16-20 pax\"}]","seasonal_enabled":"false","seasonal_pricing": "{\"rainy\":{\"months\":[6,7,8,9,10],\"label\":\"Rainy Season Promo\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":4000},{\"min\":16,\"max\":20,\"price\":4500}]},\"summer\":{\"months\":[3,4,5],\"label\":\"Summer Peak\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":5000},{\"min\":16,\"max\":20,\"price\":6000}]}}"},"vacation":{"enabled":False,"until":"","reason":""},"oauth":provider}
         users.append(u); save_users(users)
         print(f"[AUTH] OAuth {provider} new {email}", flush=True)
     session["user_id"] = u["id"]
@@ -1205,7 +1287,7 @@ def api_save_business():
     for u in users:
         if u["id"]==uid:
             # only update business + vacation (not email)
-            for k in ["name","location","price_day","capacity","inclusions","gcash_number","gcash_name","contact","downpayment","google_maps_link","extra_info"]:
+            for k in ["name","location","price_day","capacity","inclusions","gcash_number","gcash_name","contact","downpayment","google_maps_link","extra_info","pricing_tiers","seasonal_enabled","seasonal_pricing","promo_enabled","promo_name","promo_discount","promo_until"]:
                 if k in data: u["business"][k] = data[k]
             if "vacation" in data:
                 u["vacation"] = data["vacation"]

@@ -62,6 +62,24 @@ textarea{min-height:70px;resize:vertical}
       <label>Google Maps Link <input id="biz_maps" placeholder="Enter your Google Maps link"></label>
       <label>Extra Info <textarea id="biz_extra" placeholder="Enter extra info (e.g., free parking, near beach)"></textarea></label>
       <div class="card2">
+        <h4>💰 Pricing Tiers & Seasonal Promo</h4>
+        <p class="small muted">Example: 4500 for 10-15 pax, 5000 for 16-20 pax. Rainy cheaper, Summer higher — AI auto-quotes.</p>
+        <div class="grid2">
+          <label>10-15 pax Price <input id="price_10_15" type="number" placeholder="4500"></label>
+          <label>16-20 pax Price <input id="price_16_20" type="number" placeholder="5000"></label>
+        </div>
+        <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="seasonal_on"> Enable Seasonal Pricing (Rainy vs Summer)</label>
+        <div class="grid2">
+          <label>Rainy Promo (10-15) <input id="rainy_10_15" type="number" placeholder="4000"></label>
+          <label>Rainy Promo (16-20) <input id="rainy_16_20" type="number" placeholder="4500"></label>
+        </div>
+        <div class="grid2">
+          <label>Summer Peak (10-15) <input id="summer_10_15" type="number" placeholder="5000"></label>
+          <label>Summer Peak (16-20) <input id="summer_16_20" type="number" placeholder="6000"></label>
+        </div>
+        <p class="small muted">Rainy = Jun-Oct cheaper, Summer = Mar-May higher. AI uses date + pax to quote.</p>
+      </div>
+      <div class="card2">
         <h4>🔒 Storm / Vacation</h4>
         <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="vac_on"> Vacation Mode ON</label>
         <div class="grid2">
@@ -88,6 +106,17 @@ async function loadMe(){
   const b=j.business;
   document.getElementById('biz_name').value=b.name||''; document.getElementById('biz_loc').value=b.location||''; document.getElementById('biz_price').value=b.price_day||''; document.getElementById('biz_cap').value=b.capacity||''; document.getElementById('biz_inc').value=b.inclusions||''; document.getElementById('biz_gcash').value=b.gcash_number||''; document.getElementById('biz_gcash_name').value=b.gcash_name||''; document.getElementById('biz_contact').value=b.contact||''; document.getElementById('biz_down').value=b.downpayment||''; document.getElementById('biz_maps').value=b.google_maps_link||''; document.getElementById('biz_extra').value=b.extra_info||'';
   document.getElementById('vac_on').checked=j.vacation.enabled; document.getElementById('vac_until').value=j.vacation.until||''; document.getElementById('vac_reason').value=j.vacation.reason||'';
+  // pricing tiers
+  try{
+    const tiers = JSON.parse(j.business.pricing_tiers||'[]');
+    const t10 = tiers.find(t=>t.min==10)||tiers[0]||{price:4500};
+    const t16 = tiers.find(t=>t.min==16)||tiers[1]||{price:5000};
+    document.getElementById('price_10_15').value=t10.price; document.getElementById('price_16_20').value=t16.price;
+    document.getElementById('seasonal_on').checked=(j.business.seasonal_enabled=='true');
+    const seasonal = JSON.parse(j.business.seasonal_pricing||'{}');
+    if(seasonal.rainy){ const rt10=seasonal.rainy.tiers.find(t=>t.min==10)||{price:4000}; const rt16=seasonal.rainy.tiers.find(t=>t.min==16)||{price:4500}; document.getElementById('rainy_10_15').value=rt10.price; document.getElementById('rainy_16_20').value=rt16.price; }
+    if(seasonal.summer){ const st10=seasonal.summer.tiers.find(t=>t.min==10)||{price:5000}; const st16=seasonal.summer.tiers.find(t=>t.min==16)||{price:6000}; document.getElementById('summer_10_15').value=st10.price; document.getElementById('summer_16_20').value=st16.price; }
+  }catch(e){}
   document.getElementById('plan').textContent=j.user.plan; document.getElementById('trial_end').textContent=j.trial_end;
   const banner=document.getElementById('banner');
   // format hours -> days + hours if >24
@@ -102,7 +131,10 @@ async function loadMe(){
 }
 function showBilling(){ document.getElementById('billing').style.display='block'; document.getElementById('billing').scrollIntoView({behavior:'smooth'}); }
 async function saveBiz(){
-  const body={name:biz_name.value, location:biz_loc.value, price_day:biz_price.value, capacity:biz_cap.value, inclusions:biz_inc.value, gcash_number:biz_gcash.value, gcash_name:biz_gcash_name.value, contact:biz_contact.value, downpayment:biz_down.value, google_maps_link:biz_maps.value, extra_info:biz_extra.value, vacation:{enabled:vac_on.checked, until:vac_until.value, reason:vac_reason.value}};
+  // build pricing tiers JSON
+  const tiers = [{min:10,max:15,price:parseInt(price_10_15.value)||4500,label:"10-15 pax"},{min:16,max:20,price:parseInt(price_16_20.value)||5000,label:"16-20 pax"}];
+  const seasonal = {rainy:{months:[6,7,8,9,10],label:"Rainy Season Promo",tiers:[{min:10,max:15,price:parseInt(rainy_10_15.value)||4000},{min:16,max:20,price:parseInt(rainy_16_20.value)||4500}]},summer:{months:[3,4,5],label:"Summer Peak",tiers:[{min:10,max:15,price:parseInt(summer_10_15.value)||5000},{min:16,max:20,price:parseInt(summer_16_20.value)||6000}]}};
+  const body={name:biz_name.value, location:biz_loc.value, price_day:biz_price.value, capacity:biz_cap.value, inclusions:biz_inc.value, gcash_number:biz_gcash.value, gcash_name:biz_gcash_name.value, contact:biz_contact.value, downpayment:biz_down.value, google_maps_link:biz_maps.value, extra_info:biz_extra.value, pricing_tiers:JSON.stringify(tiers), seasonal_enabled:seasonal_on.checked?'true':'false', seasonal_pricing:JSON.stringify(seasonal), vacation:{enabled:vac_on.checked, until:vac_until.value, reason:vac_reason.value}};
   const r=await fetch('/api/save-business',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json();
   if(j.ok) alert('Saved! AI updated — try it on Messenger.'); else alert(j.error||'Save failed');
