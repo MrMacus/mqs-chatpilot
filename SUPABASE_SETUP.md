@@ -18,8 +18,15 @@ create table if not exists mqs_users (
   trial_end text,
   business jsonb default '{}'::jsonb,
   vacation jsonb default '{}'::jsonb,
-  oauth text
+  oauth text,
+  page_id text,
+  page_access_token text,
+  page_name text
 );
+-- add missing columns if table already exists
+alter table mqs_users add column if not exists page_id text;
+alter table mqs_users add column if not exists page_access_token text;
+alter table mqs_users add column if not exists page_name text;
 -- enable anon access (service key will bypass, but allow anon for our simple REST)
 alter table mqs_users enable row level security;
 create policy "allow all for anon" on mqs_users for all using (true) with check (true);

@@ -933,6 +933,11 @@ app = Flask(__name__, static_folder="website", static_url_path="")
 app.secret_key = os.environ.get("FLASK_SECRET", "mqs_secret_2026_change_in_prod")
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
+# Facebook OAuth for One-Click Page Connect (Option B)
+FB_APP_ID = os.environ.get("FACEBOOK_APP_ID", "").strip()
+FB_APP_SECRET = os.environ.get("FACEBOOK_APP_SECRET", "").strip()
+FB_REDIRECT_URI = os.environ.get("FB_REDIRECT_URI", "https://mqs-chatpilot.onrender.com/auth/facebook/callback")
+
 # === USERS / AUTH HELPERS (trial 1 day, hidden admin) — Supabase persistent, fallback to file ===
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()  # anon key
@@ -993,7 +998,10 @@ def save_users(users):
                     "trial_end": u.get("trial_end"),
                     "business": u.get("business",{}),
                     "vacation": u.get("vacation",{}),
-                    "oauth": u.get("oauth","")
+                    "oauth": u.get("oauth",""),
+                    "page_id": u.get("page_id",""),
+                    "page_access_token": u.get("page_access_token",""),
+                    "page_name": u.get("page_name","")
                 }
                 r = requests.post(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}", headers={**_sb_headers(), "Prefer": "resolution=merge-duplicates"}, json=payload, timeout=8)
                 if r.status_code not in (200,201,204):
@@ -1010,6 +1018,10 @@ def check_pw(pw, h): return hash_pw(pw) == h
 def find_user(email):
     for u in load_users():
         if u.get("email","").lower() == email.lower(): return u
+    return None
+def find_user_by_id(uid):
+    for u in load_users():
+        if u.get("id")==uid: return u
     return None
 
 def trial_info(user):
@@ -1213,6 +1225,102 @@ def admin_sync():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# === FACEBOOK OAUTH ONE-CLICK CONNECT ===
+@app.route("/auth/facebook")
+def fb_auth():
+    if not session.get("user_id"): return redirect("/login")
+    if not FB_APP_ID or not FB_APP_SECRET:
+        return "Facebook App not configured — set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET on Render", 500
+    import urllib.parse
+    state = session.get("user_id")
+    params = {
+        "client_id": FB_APP_ID,
+        "redirect_uri": FB_REDIRECT_URI,
+        "scope": "pages_messaging,pages_manage_metadata,pages_read_engagement,pages_show_list",
+        "response_type": "code",
+        "state": state
+    }
+    url = "https://www.facebook.com/v19.0/dialog/oauth?" + urllib.parse.urlencode(params)
+    return redirect(url)
+
+@app.route("/auth/facebook/callback")
+def fb_callback():
+    code = request.args.get("code")
+    state = request.args.get("state")
+    if not code: return "Missing code", 400
+    if not FB_APP_ID or not FB_APP_SECRET:
+        return "Not configured", 500
+    # exchange code for user access token
+    import urllib.parse, urllib.request
+    token_url = f"https://graph.facebook.com/v19.0/oauth/access_token?client_id={FB_APP_ID}&redirect_uri={urllib.parse.quote(FB_REDIRECT_URI, safe='')}&client_secret={FB_APP_SECRET}&code={code}"
+    try:
+        r = requests.get(token_url, timeout=10)
+        j = r.json()
+        if "access_token" not in j:
+            return f"Token exchange failed: {j}", 400
+        user_token = j["access_token"]
+        # get pages
+        pr = requests.get(f"https://graph.facebook.com/v19.0/me/accounts?access_token={user_token}", timeout=10)
+        pj = pr.json()
+        pages = pj.get("data", [])
+        if not pages:
+            return "<h3>No Facebook Pages found. Make sure you are admin of a Page.</h3><a href='/dashboard'>Back</a>", 400
+        # auto-pick first page, or show selector if multiple
+        if len(pages) == 1:
+            page = pages[0]
+            return _fb_save_page(state, page)
+        # multiple: show selector
+        html = "<html><head><link rel='stylesheet' href='/style.css'></head><body style='background:#0f141b;color:#e6edf3;padding:20px'><h2>Select Page to Connect</h2>"
+        for p in pages:
+            html += f"<div style='background:#1f252e;border:1px solid #2e3a47;padding:12px;border-radius:10px;margin:8px 0'><strong>{p.get('name')}</strong> (ID {p.get('id')}) <a href='/auth/facebook/select?user_id={state}&page_id={p.get('id')}&token={p.get('access_token')}' style='background:#4a6fa5;color:#fff;padding:6px 12px;border-radius:8px;text-decoration:none;float:right'>Connect this Page →</a><br><small>{p.get('category')}</small></div>"
+        html += "</body></html>"
+        # store pages in session for select
+        session["fb_pages"] = pages
+        session["fb_user_token"] = user_token
+        return html
+    except Exception as e:
+        return f"OAuth error: {e}", 500
+
+@app.route("/auth/facebook/select")
+def fb_select():
+    uid = request.args.get("user_id")
+    pid = request.args.get("page_id")
+    token = request.args.get("token")
+    if not uid or not pid or not token:
+        return "Missing params", 400
+    pages = session.get("fb_pages", [])
+    page = next((p for p in pages if p.get("id")==pid), {"id": pid, "access_token": token, "name": "Unknown"})
+    return _fb_save_page(uid, page)
+
+def _fb_save_page(uid, page):
+    users = load_users()
+    for u in users:
+        if u["id"] == uid:
+            u["page_id"] = page.get("id")
+            u["page_access_token"] = page.get("access_token")
+            u["page_name"] = page.get("name","")
+            # also show verify token for webhook
+            u["verify_token"] = "mqs_verify_2026"
+            save_users(users)
+            # also create/update clients entry for webhook routing (so bot replies on their page)
+            try:
+                found = next((c for c in clients if c.get("id")==f"web_{uid}"), None)
+                if not found:
+                    clients.append({"id": f"web_{uid}", "name": page.get("name", u.get("balsa_name","")), "page_id": page.get("id"), "config": {"page_access_token": page.get("access_token"), "verify_token": "mqs_verify_2026", "ai_api_key": _env_key, "business_info": u.get("business",{}), "vacation_enabled": u.get("vacation",{}).get("enabled", False), "vacation_until": u.get("vacation",{}).get("until",""), "vacation_reason": u.get("vacation",{}).get("reason","")}})
+                else:
+                    found["page_id"] = page.get("id")
+                    found["config"]["page_access_token"] = page.get("access_token")
+                    found["name"] = page.get("name", found["name"])
+                    found["config"]["business_info"] = u.get("business",{})
+                try:
+                    with open(CLIENTS_PATH, "w", encoding="utf-8") as f:
+                        json.dump(clients, f, indent=4, ensure_ascii=False)
+                except: pass
+            except: pass
+            print(f"[FB CONNECT] {u['email']} -> Page {page.get('name')} ({page.get('id')})", flush=True)
+            return f"<html><head><meta http-equiv='refresh' content='2;url=/dashboard'></head><body style='background:#0f141b;color:#e6edf3;padding:40px;text-align:center'><h2>✅ Connected! {page.get('name')} is now linked to ChatPilot</h2><p>AI will now reply on your Page. Redirecting to dashboard...</p><a href='/dashboard' style='color:#4a6fa5'>Go to Dashboard</a></body></html>"
+    return "User not found", 404
+
 # === AUTH API (login/register/dashboard/admin) ===
 @app.route("/api/register", methods=["POST"])
 def api_register():
@@ -1276,7 +1384,7 @@ def api_me():
     u = next((x for x in users if x["id"]==uid), None)
     if not u: return jsonify({"ok":False,"error":"not found"}), 404
     end, hours_left, expired = trial_info(u)
-    return jsonify({"ok":True,"user":{"email":u["email"],"plan":u.get("plan","trial"),"balsa_name":u.get("balsa_name",""),"id":u["id"]},"business":u.get("business",{}),"vacation":u.get("vacation",{}),"trial_end":end,"trial_hours_left":hours_left,"trial_expired":expired})
+    return jsonify({"ok":True,"user":{"email":u["email"],"plan":u.get("plan","trial"),"balsa_name":u.get("balsa_name",""),"id":u["id"]},"business":u.get("business",{}),"vacation":u.get("vacation",{}),"trial_end":end,"trial_hours_left":hours_left,"trial_expired":expired,"page":{"id":u.get("page_id",""),"name":u.get("page_name",""),"connected":bool(u.get("page_access_token"))}})
 
 @app.route("/api/save-business", methods=["POST"])
 def api_save_business():
@@ -1319,11 +1427,45 @@ def api_admin_users():
     stats = {"trial":0,"expired":0,"paid":0}
     for u in users:
         _, hl, exp = trial_info(u)
-        out.append({"id":u["id"],"email":u["email"],"balsa_name":u.get("balsa_name",""),"plan":u.get("plan","trial"),"created_at":u.get("created_at","")[:16],"trial_hours_left":hl,"trial_expired":exp})
+        out.append({"id":u["id"],"email":u["email"],"balsa_name":u.get("balsa_name",""),"plan":u.get("plan","trial"),"created_at":u.get("created_at","")[:16],"trial_hours_left":hl,"trial_expired":exp,"page_id":u.get("page_id",""),"page_name":u.get("page_name",""),"page_connected":bool(u.get("page_access_token"))})
         if u.get("plan")=="trial" and not exp: stats["trial"]+=1
         elif exp: stats["expired"]+=1
         else: stats["paid"]+=1
     return jsonify({"ok":True,"users":out,"stats":stats})
+
+@app.route("/api/admin/set-page", methods=["POST"])
+def api_admin_set_page():
+    if not session.get("is_admin") and request.headers.get("X-ADMIN-TOKEN") != (os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"):
+        return jsonify({"ok":False,"error":"unauthorized"}), 403
+    data = request.get_json() or {}
+    uid = data.get("user_id"); pid = data.get("page_id","").strip(); token = data.get("page_access_token","").strip()
+    if not uid or not token: return jsonify({"ok":False,"error":"user_id and page_access_token required"}), 400
+    users = load_users()
+    for u in users:
+        if u["id"]==uid:
+            u["page_id"] = pid
+            u["page_access_token"] = token
+            # try get page name via Graph API
+            try:
+                r = requests.get(f"https://graph.facebook.com/v19.0/{pid}?fields=name&access_token={token}", timeout=6)
+                if r.status_code==200:
+                    u["page_name"] = r.json().get("name","")
+            except: u["page_name"] = u.get("balsa_name","")
+            save_users(users)
+            # also update clients for webhook
+            try:
+                found = next((c for c in clients if c.get("id")==f"web_{uid}"), None)
+                if not found:
+                    clients.append({"id": f"web_{uid}", "name": u.get("page_name") or u.get("balsa_name",""), "page_id": pid, "config": {"page_access_token": token, "verify_token": "mqs_verify_2026", "ai_api_key": _env_key, "business_info": u.get("business",{}), "vacation_enabled": u.get("vacation",{}).get("enabled", False), "vacation_until": u.get("vacation",{}).get("until",""), "vacation_reason": u.get("vacation",{}).get("reason","")}})
+                else:
+                    found["page_id"] = pid
+                    found["config"]["page_access_token"] = token
+                    found["config"]["business_info"] = u.get("business",{})
+                with open(CLIENTS_PATH, "w", encoding="utf-8") as f:
+                    json.dump(clients, f, indent=4, ensure_ascii=False)
+            except: pass
+            return jsonify({"ok":True})
+    return jsonify({"ok":False,"error":"not found"}), 404
 
 @app.route("/api/admin/extend", methods=["POST"])
 def api_admin_extend():

@@ -39,6 +39,13 @@ textarea{min-height:70px;resize:vertical}
   </aside>
   <main class="main">
     <div id="banner" class="banner trial" style="display:none"></div>
+    <div id="fb_card" class="card2" style="border-color:var(--accent2)">
+      <h4>🔵 Facebook Page Connection — One-Click</h4>
+      <p class="small muted">Connect your FB Page so ChatPilot replies on your Messenger. No need to copy token.</p>
+      <div id="fb_status" class="small" style="margin:8px 0;color:var(--text2)">Checking...</div>
+      <a id="fb_btn" class="btn primary" href="/auth/facebook" style="background:#1877F2">ⓕ Connect Facebook Page →</a>
+      <p class="small muted" style="margin-top:6px">If you have no App ID yet, admin will input token manually — contact MQS TECH.</p>
+    </div>
     <h2>Customize Your AI — <span style="color:var(--text2);font-weight:400">edit here, AI updates instantly</span></h2>
     <p class="small muted" style="margin-bottom:12px">You’re logged in — whatever you change here is what the AI will say on Messenger. 1 day trial, we’ll ask after 24 hours if you want to continue.</p>
     <div id="form">
@@ -117,6 +124,14 @@ async function loadMe(){
     if(seasonal.rainy){ const rt10=seasonal.rainy.tiers.find(t=>t.min==10)||{price:4000}; const rt16=seasonal.rainy.tiers.find(t=>t.min==16)||{price:4500}; document.getElementById('rainy_10_15').value=rt10.price; document.getElementById('rainy_16_20').value=rt16.price; }
     if(seasonal.summer){ const st10=seasonal.summer.tiers.find(t=>t.min==10)||{price:5000}; const st16=seasonal.summer.tiers.find(t=>t.min==16)||{price:6000}; document.getElementById('summer_10_15').value=st10.price; document.getElementById('summer_16_20').value=st16.price; }
   }catch(e){}
+  // fb page status
+  if(j.page && j.page.connected){
+    document.getElementById('fb_status').innerHTML='✅ Connected: <strong>'+(j.page.name||j.page.id)+'</strong> (ID '+j.page.id+') — AI is replying on your Page.';
+    document.getElementById('fb_btn').textContent='🔄 Re-connect Facebook Page';
+    document.getElementById('fb_btn').style.background='#2a3441';
+  } else {
+    document.getElementById('fb_status').textContent='⚠️ Not connected — click Connect to link your FB Page (1 click, no token needed).';
+  }
   document.getElementById('plan').textContent=j.user.plan; document.getElementById('trial_end').textContent=j.trial_end;
   const banner=document.getElementById('banner');
   // format hours -> days + hours if >24

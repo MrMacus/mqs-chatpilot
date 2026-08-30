@@ -31,7 +31,7 @@ th{color:var(--text2);font-size:.8rem}
   <div class="card">
     <h3>Customers — <span id="count"></span></h3>
     <p class="small muted">Lahat ng nag-register / trial. Click para i-manage.</p>
-    <table><thead><tr><th>Email</th><th>Balsa</th><th>Plan</th><th>Trial</th><th>Created</th><th>Action</th></tr></thead><tbody id="tbody"></tbody></table>
+    <table><thead><tr><th>Email</th><th>Balsa</th><th>Page</th><th>Plan</th><th>Trial</th><th>Created</th><th>Action</th></tr></thead><tbody id="tbody"></tbody></table>
   </div>
   <div class="card">
     <h3>Stats</h3>
@@ -56,7 +56,8 @@ async function load(){
     const tr=document.createElement('tr');
     const badge = u.trial_expired ? '<span class="badge expired">expired</span>' : '<span class="badge trial">'+u.trial_hours_left+'h left</span>';
     const planBadge = u.plan==='trial' ? badge : '<span class="badge paid">'+u.plan+'</span>';
-    tr.innerHTML=`<td>${u.email}</td><td>${u.balsa_name}</td><td>${planBadge}</td><td>${u.trial_expired?'expired':u.trial_hours_left+'h'}</td><td>${u.created_at}</td><td><button onclick="ext('${u.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--card2);color:var(--text);cursor:pointer">+7 days</button> <button onclick="del('${u.id}')" style="padding:4px 8px;border-radius:6px;background:var(--red);color:#fff;border:none;cursor:pointer">Del</button></td>`;
+    const pageInfo = u.page_connected ? `<span style="color:#5fb078">✅ ${u.page_name||u.page_id.slice(0,6)}</span>` : `<span style="color:#ff8a8a">❌ not connected</span> <button onclick="setPage('${u.id}')" style="padding:2px 6px;border-radius:4px;background:var(--accent2);color:#fff;border:none;cursor:pointer;font-size:.75rem">Set Token</button>`;
+    tr.innerHTML=`<td>${u.email}</td><td>${u.balsa_name}</td><td>${pageInfo}</td><td>${planBadge}</td><td>${u.trial_expired?'expired':u.trial_hours_left+'h'}</td><td>${u.created_at}</td><td><button onclick="ext('${u.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--card2);color:var(--text);cursor:pointer">+7 days</button> <button onclick="del('${u.id}')" style="padding:4px 8px;border-radius:6px;background:var(--red);color:#fff;border:none;cursor:pointer">Del</button></td>`;
     tb.appendChild(tr);
   });
   document.getElementById('stats').textContent='Total: '+j.users.length+' • Trial: '+j.stats.trial+' • Expired: '+j.stats.expired+' • Paid: '+j.stats.paid;
@@ -69,6 +70,13 @@ async function del(id){
   if(!confirm('Delete user?')) return;
   const r=await fetch('/api/admin/delete',{method:'POST',headers:{'Content-Type':'application/json','X-ADMIN-TOKEN':token},body:JSON.stringify({user_id:id})});
   const j=await r.json(); if(j.ok) load(); else alert(j.error);
+}
+async function setPage(id){
+  const token2=prompt('Paste Page Access Token for this user (from Meta Developer):');
+  if(!token2) return;
+  const pid=prompt('Page ID (find at findmyfbid.com or from Graph API):')||'';
+  const r=await fetch('/api/admin/set-page',{method:'POST',headers:{'Content-Type':'application/json','X-ADMIN-TOKEN':token},body:JSON.stringify({user_id:id, page_id:pid, page_access_token:token2})});
+  const j=await r.json(); if(j.ok) load(); else alert(j.error||'Failed');
 }
 </script>
 </body>
