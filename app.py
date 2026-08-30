@@ -77,6 +77,13 @@ DEFAULT_CONFIG = {
         "owner_telegram_chat_id": "",
         "dti_permit_url": "https://drive.google.com/EXAMPLE-DTI",
         "balsa_photos_url": "https://www.facebook.com/balsa-photos",
+        "google_calendar_id": "",
+        "google_calendar_api_key": "",
+        "number_of_balsas": "1",
+        "balsa_photos_json": "{\"balsa1\": \"https://facebook.com/balsa1-photos\", \"balsa2\": \"https://facebook.com/balsa2-photos\"}",
+        "food_package": "Not available - bring your own food",
+        "food_price": "",
+        "buddle_price": "",
         "cancellation_policy": "No refund sa downpayment kung cancel 1 day before."
     },
     "ai_system_prompt": "Ikaw ay friendly parang tao assistant ni {name} sa {location}. Taglish, may po. Day Tour ONLY {price_day} 7am-4pm WALANG overnight. Capacity {capacity}, Inclusions {inclusions}, Maps {google_maps_link}, DTI {dti_permit_url}, Photos {balsa_photos_url}, Contact {contact}, GCash {gcash_number} ({gcash_name}) Down {downpayment}."
@@ -131,6 +138,7 @@ class CCPTMessengerBot(ctk.CTk):
         try:
             self.wm_attributes('-transparentcolor', 'black')
         except: pass
+        self._start_reminder_loop()
 
     # ---------- CONFIG & BOOKINGS ----------
     def load_config(self):
@@ -253,6 +261,8 @@ class CCPTMessengerBot(ctk.CTk):
         self.refresh_client_tabs()
         self.reload_ui_from_config()
         self.refresh_bookings()
+        try: self.refresh_dashboard()
+        except: pass
         self.log(f"⇄ Switched to: {self.get_active_client()['name']} ({client_id})")
 
     def reload_ui_from_config(self):
@@ -690,6 +700,13 @@ class CCPTMessengerBot(ctk.CTk):
             ("owner_fb_id", "Owner FB ID (for notifications) - find at findmyfbid.com"),
             ("owner_telegram_token", "Telegram Bot Token (optional)"),
             ("owner_telegram_chat_id", "Telegram Chat ID (optional)"),
+            ("google_calendar_id", "Google Calendar ID (e.g., abc@group.calendar.google.com)"),
+            ("google_calendar_api_key", "Google Calendar API Key (from Google Cloud)"),
+            ("number_of_balsas", "Number of Balsas (1-5)"),
+            ("balsa_photos_json", "Balsa Photos JSON (per balsa links)"),
+            ("food_package", "Food Package Details (e.g., bring own / buddle)"),
+            ("food_price", "Food Price (e.g., 500)"),
+            ("buddle_price", "Buddle Price (e.g., 1500)"),
             ("extra_info", "Extra Info"),
             ("cancellation_policy", "Cancellation Policy"),
         ]
@@ -751,6 +768,7 @@ class CCPTMessengerBot(ctk.CTk):
         self.sim_sender = "TEST_USER_001"
         ctk.CTkLabel(tab1, text="Simulated FB ID: TEST_USER_001 (to track booking session)", font=("Segoe UI", 10), text_color="gray").pack(pady=2)
 
+        self.tabview.add("📊  DASHBOARD")
         # --- TAB 2: BOOKINGS ---
         tab2 = self.tabview.tab("📅  BOOKINGS CALENDAR")
         top2 = ctk.CTkFrame(tab2, fg_color="transparent")
@@ -784,6 +802,38 @@ class CCPTMessengerBot(ctk.CTk):
         self.bookings_scroll = ctk.CTkScrollableFrame(tab2, fg_color="transparent", height=380)
         self.bookings_scroll.pack(fill="both", expand=True, padx=6, pady=6)
 
+        # --- TAB 3: DASHBOARD ---
+        tab3 = self.tabview.tab("📊  DASHBOARD")
+        dash_top = ctk.CTkFrame(tab3, fg_color="transparent")
+        dash_top.pack(fill="x", padx=6, pady=8)
+        ctk.CTkLabel(dash_top, text="📊  ANALYTICS DASHBOARD", font=("Segoe UI", 13, "bold"), text_color=COLORS["accent"]).pack(side="left")
+        self.dash_balsa_label = ctk.CTkLabel(dash_top, text=f"— {self.get_active_client()['name']}", font=("Segoe UI", 10), text_color=COLORS["text2"])
+        self.dash_balsa_label.pack(side="left", padx=8)
+        ctk.CTkButton(dash_top, text="🔄 Refresh", width=80, height=30, fg_color=COLORS["card2"], command=self.refresh_dashboard).pack(side="right", padx=2)
+
+        self.dash_cards_frame = ctk.CTkFrame(tab3, fg_color="transparent")
+        self.dash_cards_frame.pack(fill="x", padx=6, pady=6)
+        # cards will be created in refresh_dashboard
+        self.dash_cards = {}
+        # stats grid
+        self.dash_stats_frame = ctk.CTkFrame(tab3, fg_color=COLORS["card2"], corner_radius=10, border_width=1, border_color=COLORS["border"])
+        self.dash_stats_frame.pack(fill="x", padx=6, pady=6)
+        self.dash_revenue_label = ctk.CTkLabel(self.dash_stats_frame, text="💰 Revenue: --", font=("Segoe UI", 11, "bold"), text_color=COLORS["green"])
+        self.dash_revenue_label.pack(anchor="w", padx=12, pady=(8,2))
+        self.dash_peak_label = ctk.CTkLabel(self.dash_stats_frame, text="🔥 Peak: --", font=("Segoe UI", 11), text_color=COLORS["text"])
+        self.dash_peak_label.pack(anchor="w", padx=12, pady=2)
+        self.dash_pax_label = ctk.CTkLabel(self.dash_stats_frame, text="👥 Total Pax: --", font=("Segoe UI", 11), text_color=COLORS["text"])
+        self.dash_pax_label.pack(anchor="w", padx=12, pady=2)
+        self.dash_monthly_label = ctk.CTkLabel(self.dash_stats_frame, text="📅 Monthly: --", font=("Consolas", 10), text_color=COLORS["text2"])
+        self.dash_monthly_label.pack(anchor="w", padx=12, pady=(2,8))
+        # export
+        ctk.CTkButton(tab3, text="📤 Export CSV", width=120, height=30, fg_color=COLORS["accent2"], command=self.export_dashboard_csv).pack(side="left", pady=6, padx=6)
+        ctk.CTkButton(tab3, text="🖼 Verify GCash Screenshot", width=180, height=30, fg_color=COLORS["green2"], hover_color=COLORS["green"], command=self.upload_gcash_screenshot).pack(side="left", padx=6)
+        ctk.CTkButton(tab3, text="⏰ Run Reminders Now", width=150, height=30, fg_color=COLORS["orange"], hover_color="#e65100", command=self.manual_trigger_reminders).pack(side="left", padx=6)
+        # live cloud stats
+        self.dash_cloud_label = ctk.CTkLabel(tab3, text="☁ Cloud stats: click Refresh", font=("Segoe UI", 10), text_color="gray")
+        self.dash_cloud_label.pack(anchor="w", padx=6, pady=4)
+
         # footer
         footer = ctk.CTkFrame(self, fg_color=COLORS["card"], corner_radius=0, height=32)
         footer.pack(fill="x", side="bottom")
@@ -792,6 +842,7 @@ class CCPTMessengerBot(ctk.CTk):
         self.after(500, lambda: self.log("=== MQS AutoReply v2.0 Booking System Started ==="))
         self.after(600, lambda: self.log("V2 Features: Auto-booking, GCash, Availability check, Standalone flow"))
         self.after(700, self.refresh_bookings)
+        self.after(750, self.refresh_dashboard)
         self.after(800, lambda: self.log(f"Webhook: http://localhost:{self.config_data.get('port',5000)}/webhook"))
 
     def _quick_test(self, txt):
@@ -988,6 +1039,269 @@ class CCPTMessengerBot(ctk.CTk):
         ctk.CTkButton(win, text="Save Booking", fg_color=COLORS["green2"], command=save).pack(pady=16)
         ctk.CTkButton(win, text="Cancel", fg_color=COLORS["card2"], command=win.destroy).pack()
 
+    # ---------- DASHBOARD ----------
+    def get_dashboard_stats(self):
+        biz = self.config_data.get("business_info",{})
+        try: price = int(re.sub(r"\D","", str(biz.get("price_day_amount","3500"))) or 3500)
+        except: price = 3500
+        try: down = int(re.sub(r"\D","", str(biz.get("downpayment","1000"))) or 1000)
+        except: down = 1000
+        total = len(self.bookings)
+        confirmed = sum(1 for b in self.bookings if b.get("status")=="CONFIRMED")
+        paid = sum(1 for b in self.bookings if b.get("status")=="PAID_AWAITING_CONFIRM")
+        pending = sum(1 for b in self.bookings if b.get("status")=="PENDING_PAYMENT")
+        inquiry = sum(1 for b in self.bookings if b.get("status")=="INQUIRY")
+        cancelled = sum(1 for b in self.bookings if b.get("status")=="CANCELLED")
+        revenue_confirmed = confirmed * price
+        revenue_paid = paid * down
+        revenue_total = revenue_confirmed + revenue_paid
+        from collections import Counter
+        dates = Counter(b.get("date","") for b in self.bookings if b.get("date") and b.get("status") not in ["CANCELLED"])
+        peak_date, peak_count = dates.most_common(1)[0] if dates else ("-",0)
+        total_pax = 0
+        for b in self.bookings:
+            try: total_pax += int(re.search(r"\d+", str(b.get("pax","0"))).group(0))
+            except: pass
+        monthly = Counter()
+        for b in self.bookings:
+            try:
+                d = b.get("created_at","")[:7]
+                if d: monthly[d] += 1
+            except: pass
+        # all balsas total
+        all_total = sum(len(json.load(open(resource_path(f"bookings_{c['id']}.json"), encoding="utf-8"))) if os.path.exists(resource_path(f"bookings_{c['id']}.json")) else 0 for c in self.clients)
+        return {"total": total, "confirmed": confirmed, "paid": paid, "pending": pending, "inquiry": inquiry, "cancelled": cancelled, "revenue_confirmed": revenue_confirmed, "revenue_paid": revenue_paid, "revenue_total": revenue_total, "peak_date": peak_date, "peak_count": peak_count, "total_pax": total_pax, "monthly": dict(monthly), "price": price, "down": down, "all_total": all_total}
+
+    def refresh_dashboard(self):
+        try: self.dash_balsa_label.configure(text=f"— {self.get_active_client()['name']} ({len(self.clients)} balsas)")
+        except: pass
+        stats = self.get_dashboard_stats()
+        # cards
+        for w in self.dash_cards_frame.winfo_children(): w.destroy()
+        cards = [
+            ("Total", str(stats["total"]), COLORS["accent2"]),
+            ("✅ Confirmed", str(stats["confirmed"]), COLORS["green"]),
+            ("💰 Paid", str(stats["paid"]), COLORS["orange"]),
+            ("⏳ Pending", str(stats["pending"]), COLORS["yellow"]),
+            ("❓ Inquiry", str(stats["inquiry"]), COLORS["text2"]),
+            ("❌ Cancelled", str(stats["cancelled"]), COLORS["red"]),
+        ]
+        for label, val, col in cards:
+            card = ctk.CTkFrame(self.dash_cards_frame, fg_color=COLORS["card2"], corner_radius=10, border_width=1, border_color=COLORS["border"], width=110, height=70)
+            card.pack(side="left", padx=4, pady=4)
+            card.pack_propagate(False)
+            ctk.CTkLabel(card, text=val, font=("Segoe UI", 16, "bold"), text_color=col).pack(pady=(8,0))
+            ctk.CTkLabel(card, text=label, font=("Segoe UI", 9), text_color=COLORS["text2"]).pack()
+        self.dash_revenue_label.configure(text=f"💰 Revenue — Confirmed P{stats['revenue_confirmed']:,} + Down P{stats['revenue_paid']:,} = Total P{stats['revenue_total']:,}  (price P{stats['price']:,} / down P{stats['down']:,})")
+        self.dash_peak_label.configure(text=f"🔥 Peak Date: {stats['peak_date']} ({stats['peak_count']} bookings)")
+        self.dash_pax_label.configure(text=f"👥 Total Pax (all bookings): {stats['total_pax']}  |  All Balsas Total Bookings: {stats['all_total']}")
+        monthly_str = ", ".join([f"{k}:{v}" for k,v in sorted(stats["monthly"].items())[-6:]]) or "wala pa"
+        self.dash_monthly_label.configure(text=f"📅 Monthly (last 6): {monthly_str}")
+        # also update bookings tab badge
+        try: self.refresh_bookings()
+        except: pass
+        self.log(f"📊 Dashboard refreshed — Total {stats['total']} | Revenue P{stats['revenue_total']:,}")
+
+    def export_dashboard_csv(self):
+        try:
+            import csv
+            path = resource_path(f"dashboard_{self.active_client_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
+            with open(path, 'w', newline='', encoding='utf-8') as f:
+                w = csv.writer(f)
+                w.writerow(["id","customer_name","contact","date","pax","tour_type","status","price","gcash_ref","created_at"])
+                for b in self.bookings:
+                    w.writerow([b.get("id",""), b.get("customer_name",""), b.get("contact",""), b.get("date",""), b.get("pax",""), b.get("tour_type",""), b.get("status",""), b.get("price",""), b.get("gcash_ref",""), b.get("created_at","")])
+            messagebox.showinfo("Exported", f"CSV saved:\n{path}")
+            self.log(f"📤 Dashboard CSV exported: {path}")
+        except Exception as e:
+            messagebox.showerror("Export error", str(e))
+
+    # ---------- AUTO-REMINDER + REVIEW ----------
+    def parse_booking_date_local(self, date_str):
+        if not date_str: return None
+        import datetime as _dt
+        s = str(date_str).strip().lower()
+        m = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", s)
+        if m:
+            try: return _dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except: pass
+        m = re.match(r"(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?", s)
+        if m:
+            try:
+                mm, dd = int(m.group(1)), int(m.group(2))
+                yy = m.group(3)
+                y = int(yy) if yy else _dt.date.today().year
+                if y < 100: y += 2000
+                return _dt.date(y, mm, dd)
+            except: pass
+        months = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
+        for k,v in months.items():
+            mm = re.search(k + r"\s*(\d{1,2})", s)
+            if mm:
+                try:
+                    d = int(mm.group(1))
+                    now = _dt.date.today()
+                    y = now.year
+                    try:
+                        cand = _dt.date(y, v, d)
+                        if cand < now: cand = _dt.date(y+1, v, d)
+                        return cand
+                    except: return _dt.date(y, v, d)
+                except: pass
+        return None
+
+    def run_reminders_and_reviews_local(self):
+        import datetime as _dt
+        today = _dt.date.today()
+        tomorrow = today + _dt.timedelta(days=1)
+        yesterday = today - _dt.timedelta(days=1)
+        biz = self.config_data.get("business_info",{})
+        changed = False
+        for b in self.bookings:
+            if b.get("status") not in ["CONFIRMED","PAID_AWAITING_CONFIRM"]: continue
+            fb_id = b.get("customer_fb_id","")
+            if not fb_id or fb_id=="MANUAL" or not fb_id.isdigit(): continue
+            bdate = self.parse_booking_date_local(b.get("date",""))
+            if not bdate: continue
+            if bdate == tomorrow and not b.get("reminder_sent"):
+                msg = f"Hi {b.get('customer_name','Mam/Sir')}! 👋 Reminder lang po — bukas na ({b.get('date')}) ang Day Tour nyo sa {biz.get('name','')} ({b.get('pax','')} pax, 7am-4pm). Kitakits! 🌊 Contact {biz.get('contact','')}."
+                ok = self.send_facebook_message(fb_id, msg)
+                if ok:
+                    b["reminder_sent"]=True
+                    b["reminder_sent_at"]=_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    changed=True
+                    self.log(f"⏰ Reminder sent to {b.get('customer_name')} {b.get('date')}")
+            if bdate == yesterday and not b.get("review_sent"):
+                msg2 = f"Salamat {b.get('customer_name','Mam/Sir')} sa pagbisita sa {biz.get('name','')} kahapon! 🙏 Review naman po sa FB page ⭐ Balik kayo! 🌊"
+                ok2 = self.send_facebook_message(fb_id, msg2)
+                if ok2:
+                    b["review_sent"]=True
+                    b["review_sent_at"]=_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    changed=True
+                    self.log(f"⭐ Review request sent to {b.get('customer_name')}")
+        if changed:
+            self.save_bookings()
+            try: self.after(0, self.refresh_bookings)
+            except: pass
+            try: self.after(0, self.refresh_dashboard)
+            except: pass
+
+    def _start_reminder_loop(self):
+        def _loop():
+            time.sleep(60)
+            while True:
+                try: self.run_reminders_and_reviews_local()
+                except Exception as e: self.log(f"[REMINDER] loop error: {e}")
+                time.sleep(3600)
+        threading.Thread(target=_loop, daemon=True).start()
+        self.log("⏰ Auto-Reminder+Review loop started (hourly)")
+
+    def manual_trigger_reminders(self):
+        self.log("⏰ Manual trigger reminders/reviews...")
+        self.run_reminders_and_reviews_local()
+        messagebox.showinfo("Reminders", "Checked reminders & review requests — tingnan ang log.")
+
+    # ---------- GCASH SCREENSHOT AUTO-VERIFY ----------
+    def verify_gcash_image_local(self, image_path):
+        """Verify GCash screenshot via Gemini Vision (desktop). Returns dict or None."""
+        try:
+            import base64
+            with open(image_path, "rb") as f:
+                img_bytes = f.read()
+            biz = self.config_data.get("business_info",{})
+            api_key = self.config_data.get("ai_api_key","")
+            if not api_key:
+                messagebox.showwarning("No AI Key", "Lagay muna Gemini API Key sa config para magamit ang auto-verify.")
+                return None
+            self.log(f"🔍 Verifying GCash screenshot: {os.path.basename(image_path)} ({len(img_bytes)} bytes)...")
+            # try Gemini vision via google.genai
+            prompt = (
+                "You are a GCash receipt OCR. Extract from this GCash screenshot:\n"
+                "- Reference Number (9-13 digits)\n"
+                "- Amount (e.g., 1000.00)\n"
+                "- Date/Time if visible\n"
+                "Return ONLY JSON: {\"ref\":\"...\", \"amount\":\"...\", \"date\":\"...\", \"confident\": true/false}\n"
+                f"Expected GCash receiver: {biz.get('gcash_number','')} ({biz.get('gcash_name','')}), expected down {biz.get('downpayment','1000')}."
+            )
+            keys = [k.strip() for k in api_key.split(",") if k.strip()]
+            import re as _re, json as _js
+            for key in keys:
+                try:
+                    from google import genai as genai_new
+                    from google.genai import types
+                    client_ai = genai_new.Client(api_key=key)
+                    for mdl in ["gemini-2.5-flash", "gemini-flash-latest", "gemini-1.5-flash"]:
+                        try:
+                            resp = client_ai.models.generate_content(
+                                model=mdl,
+                                contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt), types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")])]
+                            )
+                            txt = (resp.text or "").strip()
+                            m = _re.search(r"\{.*?\}", txt, _re.S)
+                            if m:
+                                j = _js.loads(m.group(0))
+                                if j.get("ref"):
+                                    self.log(f"✓ GCash Vision ({mdl}) Ref={j.get('ref')} Amt={j.get('amount')}")
+                                    return j
+                        except Exception as me:
+                            self.log(f"  vision {mdl} fail: {me}")
+                            continue
+                except Exception as e:
+                    self.log(f"  genai error: {e}")
+                # REST fallback
+                try:
+                    import requests, base64 as _b64
+                    b64 = _b64.b64encode(img_bytes).decode()
+                    for mdl in ["gemini-1.5-flash"]:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={key}"
+                        payload = {"contents":[{"role":"user","parts":[{"text":prompt},{"inline_data":{"mime_type":"image/jpeg","data":b64}}]}]}
+                        r = requests.post(url, json=payload, timeout=15)
+                        if r.status_code==200:
+                            txt = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                            m = _re.search(r"\{.*?\}", txt, _re.S)
+                            if m:
+                                j = _js.loads(m.group(0))
+                                if j.get("ref"): return j
+                except: pass
+            # fallback regex if AI fails - just guess digits
+            m = _re.search(r"(\d{9,13})", prompt)
+            self.log("✗ GCash vision failed — pakisend manual Ref na lang")
+            return None
+        except Exception as e:
+            self.log(f"✗ GCash verify error: {e}")
+            return None
+
+    def upload_gcash_screenshot(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(title="Select GCash Screenshot", filetypes=[("Images","*.png;*.jpg;*.jpeg"),("All","*.*")])
+        if not path: return
+        res = self.verify_gcash_image_local(path)
+        if res and res.get("ref"):
+            import re as _re2
+            ref = _re2.sub(r"\D","", str(res.get("ref","")))
+            amt = res.get("amount","")
+            msg = f"GCash Verified!\nRef: {ref}\nAmount: {amt}\nConfident: {res.get('confident',False)}\n\nI-auto-mark ko sa latest PENDING booking kung meron."
+            if messagebox.askyesno("GCash Verified", msg + "\n\nAuto-mark as PAID?"):
+                booked = self.mark_paid(self.sim_sender, ref)
+                if not booked:
+                    # find latest pending any
+                    for b in reversed(self.bookings):
+                        if b.get("status") in ["PENDING_PAYMENT","INQUIRY"]:
+                            booked = b
+                            b["gcash_ref"] = ref
+                            b["gcash_amount"] = amt
+                            b["status"] = "PAID_AWAITING_CONFIRM"
+                            b["paid_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            self.save_bookings()
+                            self.refresh_bookings()
+                            break
+                if booked:
+                    messagebox.showinfo("Marked Paid", f"Booking {booked['id']} → PAID_AWAITING_CONFIRM Ref:{ref}")
+                else:
+                    messagebox.showinfo("No booking", "Walang pending booking na ma-match. Save Ref na lang.")
+        else:
+            messagebox.showwarning("No Ref", "Hindi ma-extract ang Ref. Pakisend manual na lang ang 13-digit Ref.")
+
     # ---------- FLASK ----------
     def _init_flask(self):
         if not FLASK_AVAILABLE:
@@ -1032,10 +1346,47 @@ class CCPTMessengerBot(ctk.CTk):
                             page_id = entry.get("id","")
                             target_client = self.get_client_by_page_id(page_id)
                             target_cfg = target_client["config"] if target_client else self.config_data
-                            # handle image attachments (GCash proof)
+                            # handle image attachments (GCash proof) - desktop local
                             attach = msg.get("attachments",[])
-                            if attach and not text:
-                                # image proof, treat as GCash ref
+                            if attach and any(a.get("type")=="image" for a in attach):
+                                # try GCash vision locally if possible (download if url)
+                                try:
+                                    img_att = next(a for a in attach if a.get("type")=="image")
+                                    img_url = img_att.get("payload",{}).get("url","")
+                                    if img_url and self.config_data.get("ai_api_key"):
+                                        import requests as _rq, threading as _th
+                                        def _verify_async(url, sid, cli):
+                                            try:
+                                                r = _rq.get(url, timeout=10)
+                                                if r.status_code==200:
+                                                    # save temp and verify
+                                                    import tempfile, os as _os
+                                                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tf:
+                                                        tf.write(r.content)
+                                                        tp = tf.name
+                                                    self.log(f"🖼 GCash image from {sid}, verifying...")
+                                                    # reuse verify logic via file
+                                                    res = self.verify_gcash_image_local(tp)
+                                                    try: _os.remove(tp)
+                                                    except: pass
+                                                    if res and res.get("ref"):
+                                                        ref = res.get("ref")
+                                                        # mark paid if possible
+                                                        try:
+                                                            b = self.mark_paid(sid, str(ref))
+                                                            if b:
+                                                                self.send_facebook_message(sid, f"Salamat po! 🙏 Na-verify GCash Ref: {ref} Amount: {res.get('amount','')} — PAID na, confirm ni owner. 🎉")
+                                                            else:
+                                                                self.send_facebook_message(sid, f"Salamat! Ref {ref} na-receive, i-forward ko kay owner.")
+                                                        except: pass
+                                            except Exception as e:
+                                                self.log(f"  image verify thread error: {e}")
+                                        _th.Thread(target=_verify_async, args=(img_url, sender_id, target_client), daemon=True).start()
+                                        text = f"GCash screenshot Ref auto-verify"
+                                    else:
+                                        text = "GCash screenshot proof"
+                                except: text = "GCash screenshot proof"
+                            elif attach and not text:
                                 text = "GCash screenshot proof"
                             if sender_id and text:
                                 self.message_count += 1
@@ -1327,6 +1678,7 @@ class CCPTMessengerBot(ctk.CTk):
         biz = self.config_data["business_info"]
         name = biz.get("name","Balsa")
         price_day = biz.get("price_day","3500 (7am-4pm)")
+        price_night = biz.get("price_night","WALANG OVERNIGHT - Day Tour lang 7am-4pm")
         capacity = biz.get("capacity","15-20 pax")
         contact = biz.get("contact","09123456789")
         gcash = biz.get("gcash_number","09123456789")

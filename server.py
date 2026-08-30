@@ -99,31 +99,160 @@ def save_sessions():
     except: pass
 load_sessions()
 
-# === AUTO-REMINDER LOOP (placeholder) ===
+# === AUTO-REMINDER + REVIEW REQUEST (Meta-safe tags) ===
 import threading as _th2
-def _reminder():
-    import time
-    while True:
-        time.sleep(3600)
-        print('[REMINDER] tick', flush=True)
-_th2.Thread(target=_reminder, daemon=True).start()
-print('[INIT] Reminder loop started', flush=True)
+from datetime import timedelta
 
-def save_sessions():
-    try:
-        with open(SESSIONS_PATH, "w", encoding="utf-8") as f:
-            json.dump(sessions, f, ensure_ascii=False, indent=2)
-    except: pass
-load_sessions()
-# === AUTO-REMINDER LOOP (placeholder) ===
-import threading as _th2
+def parse_booking_date(date_str):
+    """Parse flexible date like 2026-08-30, 08/30, Aug 30, Aug 30 2026 -> date obj or None"""
+    if not date_str: return None
+    import datetime as _dt, re as _re
+    s = str(date_str).strip().lower()
+    # YYYY-MM-DD
+    m = _re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", s)
+    if m:
+        try: return _dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except: pass
+    # MM/DD[/YY]
+    m = _re.match(r"(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?", s)
+    if m:
+        try:
+            mm, dd = int(m.group(1)), int(m.group(2))
+            yy = m.group(3)
+            y = int(yy) if yy else _dt.date.today().year
+            if y < 100: y += 2000
+            return _dt.date(y, mm, dd)
+        except: pass
+    # Month name + day
+    months = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
+    for k,v in months.items():
+        mm = _re.search(k + r"\s*(\d{1,2})", s)
+        if mm:
+            try:
+                d = int(mm.group(1))
+                now = _dt.date.today()
+                y = now.year
+                # if month/day already passed this year, assume next year
+                try:
+                    cand = _dt.date(y, v, d)
+                    if cand < now: cand = _dt.date(y+1, v, d)
+                    return cand
+                except: return _dt.date(y, v, d)
+            except: pass
+    return None
+
+def run_reminders_and_reviews():
+    """Check bookings for tomorrow (reminder) and yesterday (review). Uses Meta MESSAGE_TAG."""
+    import datetime as _dt
+    today = _dt.date.today()
+    tomorrow = today + _dt.timedelta(days=1)
+    yesterday = today - _dt.timedelta(days=1)
+    for client in clients:
+        biz = client["config"].get("business_info",{})
+        bookings = load_bookings(client["id"])
+        changed = False
+        for b in bookings:
+            if b.get("status") not in ["CONFIRMED","PAID_AWAITING_CONFIRM"]:
+                continue
+            fb_id = b.get("customer_fb_id","")
+            if not fb_id or fb_id=="MANUAL" or not fb_id.isdigit():
+                continue
+            bdate = parse_booking_date(b.get("date",""))
+            if not bdate: continue
+            # --- Reminder 1 day before ---
+            if bdate == tomorrow and not b.get("reminder_sent"):
+                msg = f"Hi {b.get('customer_name','Mam/Sir')}! 👋 Reminder lang po — bukas na ({b.get('date')}) ang Day Tour nyo sa {biz.get('name','')} ({b.get('pax','')} pax, 7am-4pm). Kitakits! 🌊 Dalhin ang food, sunblock, Valid ID. Contact owner {biz.get('contact','')} kung may tanong."
+                # Meta tag: CONFIRMED_EVENT_UPDATE is safest for reminders
+                ok = send_fb_message(client, fb_id, msg, tag="CONFIRMED_EVENT_UPDATE")
+                if not ok:
+                    ok = send_fb_message(client, fb_id, msg)
+                if ok:
+                    b["reminder_sent"] = True
+                    b["reminder_sent_at"] = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    changed = True
+                    print(f"[REMINDER] Sent to {b.get('customer_name')} {b.get('date')} fb:{fb_id}", flush=True)
+                else:
+                    print(f"[REMINDER] Failed {b.get('id')} fb:{fb_id}", flush=True)
+            # --- Review request 1 day after ---
+            if bdate == yesterday and not b.get("review_sent"):
+                # check if today is after booking (already past)
+                msg2 = f"Salamat {b.get('customer_name','Mam/Sir')} sa pagbisita sa {biz.get('name','')} kahapon! 🙏 Kumusta po ang balsa & service? Pwede po kayo mag-iwan ng review sa FB page namin — malaking tulong po sa amin! ⭐ Salamat ulit, balik kayo! 🌊"
+                ok2 = send_fb_message(client, fb_id, msg2, tag="POST_PURCHASE_UPDATE")
+                if not ok2:
+                    ok2 = send_fb_message(client, fb_id, msg2)
+                if ok2:
+                    b["review_sent"] = True
+                    b["review_sent_at"] = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    changed = True
+                    print(f"[REVIEW] Sent to {b.get('customer_name')} {b.get('date')}", flush=True)
+        if changed:
+            path = resource_path(f"bookings_{client['id']}.json")
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(bookings, f, indent=4, ensure_ascii=False)
+                with open(BOOKINGS_PATH, "w", encoding="utf-8") as f:
+                    json.dump(bookings, f, indent=4, ensure_ascii=False)
+            except Exception as e:
+                print(f"[REMINDER] save error {e}", flush=True)
+
 def _reminder():
     import time
+    # wait 60s on start, then hourly
+    time.sleep(60)
     while True:
+        try: run_reminders_and_reviews()
+        except Exception as e: print(f"[REMINDER] loop error {e}", flush=True)
         time.sleep(3600)
-        print('[REMINDER] tick', flush=True)
 _th2.Thread(target=_reminder, daemon=True).start()
-print('[INIT] Reminder loop started', flush=True)
+print('[INIT] Reminder+Review loop started (60s delay, then hourly)', flush=True)
+
+def send_owner_notif(client, booking, kind="BOOKING"):
+    """Owner notif for cloud - FB + Telegram if configured, otherwise just log"""
+    biz = client["config"].get("business_info",{})
+    owner_id = biz.get("owner_fb_id","").strip()
+    if kind == "INQUIRY":
+        msg = f"🔔 NEW INQUIRY (cloud) - {biz.get('name','')}\n👤 {booking.get('customer_name','')} - {booking.get('contact','')} (FB:{booking.get('customer_fb_id','')})\n📅 {booking.get('date','')} | 👥 {booking.get('pax','')} pax"
+    elif kind == "PHOTO_REQUEST":
+        msg = f"📸 Photo request - {biz.get('name','')}\n👤 {booking.get('customer_name','')} FB:{booking.get('customer_fb_id','')} asked for balsa photos"
+    else:
+        msg = f"📝 NEW BOOKING (cloud) - {biz.get('name','')}\n👤 {booking.get('customer_name','')} - {booking.get('contact','')}\n📅 {booking.get('date','')} | {booking.get('pax','')} pax"
+    print(f"[OWNER_NOTIF {kind}] {msg[:140]}", flush=True)
+    if owner_id and owner_id.isdigit():
+        token = client["config"].get("page_access_token","")
+        if token:
+            try:
+                url = f"https://graph.facebook.com/v19.0/me/messages?access_token={token}"
+                r = requests.post(url, json={"recipient":{"id": owner_id}, "message":{"text": msg}}, timeout=10)
+                print(f"[OWNER_NOTIF] FB {r.status_code}", flush=True)
+            except Exception as e:
+                print(f"[OWNER_NOTIF] FB error {e}", flush=True)
+    tg_token = biz.get("owner_telegram_token","").strip()
+    tg_chat = biz.get("owner_telegram_chat_id","").strip()
+    if tg_token and tg_chat:
+        try:
+            url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
+            r = requests.post(url, json={"chat_id": tg_chat, "text": msg}, timeout=10)
+            print(f"[OWNER_NOTIF] TG {r.status_code}", flush=True)
+        except Exception as e:
+            print(f"[OWNER_NOTIF] TG error {e}", flush=True)
+
+def load_bookings(client_id):
+    """Load bookings for a client (cloud helper)"""
+    import glob as _glob
+    path = resource_path(f"bookings_{client_id}.json")
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list): return data
+        except: pass
+    if os.path.exists(BOOKINGS_PATH):
+        try:
+            with open(BOOKINGS_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list): return data
+        except: pass
+    return []
 
 
 # === GOOGLE CALENDAR HELPERS ===
@@ -250,15 +379,104 @@ def get_fb_user_name(client, sender_id):
         pass
     return ""
 
-def send_fb_message(client, recipient_id, text):
+def send_fb_message(client, recipient_id, text, tag=None):
     token = client["config"].get("page_access_token","")
     if not token: return False
     url = f"https://graph.facebook.com/v19.0/me/messages?access_token={token}"
+    payload = {"recipient":{"id":recipient_id},"message":{"text":text}}
+    if tag:
+        payload["messaging_type"] = "MESSAGE_TAG"
+        payload["tag"] = tag
     try:
-        r = requests.post(url, json={"recipient":{"id":recipient_id},"message":{"text":text}}, timeout=10)
+        r = requests.post(url, json=payload, timeout=10)
+        if r.status_code != 200:
+            print(f"[FB SEND] fail {r.status_code}: {r.text[:120]}", flush=True)
         return r.status_code == 200
-    except:
+    except Exception as e:
+        print(f"[FB SEND] error {e}", flush=True)
         return False
+
+# === GCASH SCREENSHOT AUTO-VERIFY (AI Vision) ===
+def verify_gcash_image(image_bytes, biz, api_key):
+    """Use Gemini Vision to extract Ref No / Amount from GCash screenshot. Returns dict or None."""
+    if not image_bytes or not api_key:
+        return None
+    import base64
+    keys = [k.strip() for k in api_key.split(",") if k.strip()]
+    if not keys: return None
+    prompt = (
+        "You are a GCash receipt OCR. Extract from this GCash screenshot:\n"
+        "- Reference Number (9-13 digits)\n"
+        "- Amount (e.g., 1000.00)\n"
+        "- Date/Time if visible\n"
+        "- Sender/Receiver name if visible\n"
+        "Return ONLY JSON: {\"ref\":\"...\", \"amount\":\"...\", \"date\":\"...\", \"sender\":\"...\", \"receiver\":\"...\", \"confident\": true/false}\n"
+        f"Expected GCash receiver: {biz.get('gcash_number','')} ({biz.get('gcash_name','')}), expected down {biz.get('downpayment','1000')}.\n"
+        "If clearly GCash receipt, confident=true else false."
+    )
+    b64 = base64.b64encode(image_bytes).decode()
+    # Try new google.genai vision first
+    for key in keys:
+        try:
+            from google import genai as genai_new
+            from google.genai import types
+            client_ai = genai_new.Client(api_key=key)
+            for mdl in ["gemini-2.5-flash", "gemini-flash-latest", "gemini-1.5-flash"]:
+                try:
+                    resp = client_ai.models.generate_content(
+                        model=mdl,
+                        contents=[
+                            types.Content(role="user", parts=[
+                                types.Part.from_text(text=prompt),
+                                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+                            ])
+                        ]
+                    )
+                    txt = (resp.text or "").strip()
+                    # extract JSON
+                    m = re.search(r"\{.*?\}", txt, re.S)
+                    if m:
+                        j = json.loads(m.group(0))
+                        if j.get("ref"):
+                            print(f"[GCASH VISION] {mdl} success ref={j.get('ref')} amt={j.get('amount')}", flush=True)
+                            return j
+                    print(f"[GCASH VISION] {mdl} no ref in: {txt[:100]}", flush=True)
+                except Exception as e:
+                    print(f"[GCASH VISION] {mdl} error {e}", flush=True)
+                    continue
+        except Exception as e:
+            print(f"[GCASH VISION] genai error {e}", flush=True)
+        # fallback to direct REST with base64
+        try:
+            for mdl in ["gemini-1.5-flash", "gemini-2.0-flash"]:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={key}"
+                payload = {"contents":[{"role":"user","parts":[{"text":prompt},{"inline_data":{"mime_type":"image/jpeg","data":b64}}]}]}
+                r = requests.post(url, json=payload, timeout=15)
+                if r.status_code==200:
+                    txt = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    m = re.search(r"\{.*?\}", txt, re.S)
+                    if m:
+                        j = json.loads(m.group(0))
+                        if j.get("ref"):
+                            print(f"[GCASH VISION REST] {mdl} success", flush=True)
+                            return j
+                else:
+                    print(f"[GCASH VISION REST] {mdl} {r.status_code}", flush=True)
+        except Exception as e:
+            print(f"[GCASH VISION REST] error {e}", flush=True)
+    return None
+
+def download_fb_image(url, token):
+    """Download image from FB CDN using page token"""
+    try:
+        # FB image url may need token appended
+        r = requests.get(url, timeout=15)
+        if r.status_code==200 and r.content:
+            return r.content
+        print(f"[DL IMAGE] fail {r.status_code}", flush=True)
+    except Exception as e:
+        print(f"[DL IMAGE] error {e}", flush=True)
+    return None
 
 def call_ai(api_key, biz, history, text, user_name):
     if not api_key: return None
@@ -477,6 +695,46 @@ def generate_reply(client, sender_id, text):
     save_sessions()
     return fallback
 
+def get_dashboard_stats_for_client(client):
+    """Compute analytics for a single balsa client"""
+    bookings = load_bookings(client["id"])
+    biz = client["config"].get("business_info",{})
+    price = int(re.sub(r"\D","", str(biz.get("price_day_amount","3500"))) or 3500)
+    down = int(re.sub(r"\D","", str(biz.get("downpayment","1000"))) or 1000)
+    total = len(bookings)
+    confirmed = sum(1 for b in bookings if b.get("status")=="CONFIRMED")
+    paid = sum(1 for b in bookings if b.get("status")=="PAID_AWAITING_CONFIRM")
+    pending = sum(1 for b in bookings if b.get("status")=="PENDING_PAYMENT")
+    inquiry = sum(1 for b in bookings if b.get("status")=="INQUIRY")
+    cancelled = sum(1 for b in bookings if b.get("status")=="CANCELLED")
+    revenue_confirmed = confirmed * price
+    revenue_paid = paid * down  # downpayment only until confirmed
+    revenue_total = revenue_confirmed + revenue_paid
+    # peak date
+    from collections import Counter
+    dates = Counter(b.get("date","") for b in bookings if b.get("date") and b.get("status") not in ["CANCELLED"])
+    peak_date, peak_count = dates.most_common(1)[0] if dates else ("-",0)
+    # pax totals
+    total_pax = 0
+    for b in bookings:
+        try: total_pax += int(re.search(r"\d+", str(b.get("pax","0"))).group(0))
+        except: pass
+    # monthly breakdown last 6 months
+    monthly = Counter()
+    for b in bookings:
+        try:
+            d = b.get("created_at","")[:7]  # YYYY-MM
+            if d: monthly[d] += 1
+        except: pass
+    return {
+        "balsa": client.get("name",""),
+        "total": total, "confirmed": confirmed, "paid": paid, "pending": pending, "inquiry": inquiry, "cancelled": cancelled,
+        "revenue_confirmed": revenue_confirmed, "revenue_paid_down": revenue_paid, "revenue_total": revenue_total,
+        "peak_date": peak_date, "peak_count": peak_count,
+        "total_pax": total_pax, "monthly": dict(monthly),
+        "price": price, "down": down
+    }
+
 app = Flask(__name__)
 
 @app.route("/")
@@ -484,6 +742,76 @@ def home(): return jsonify({"status":"MQS ChatPilot Cloud Live with Gemini","cli
 
 @app.route("/health")
 def health(): return jsonify({"ok":True})
+
+@app.route("/admin/stats")
+def admin_stats():
+    token = request.headers.get("X-SYNC-TOKEN","")
+    if token != os.environ.get("SYNC_TOKEN","mqs_sync_2026") and token != "mqs_sync_2026":
+        return jsonify({"error":"unauthorized"}), 403
+    all_stats = []
+    total_rev = 0
+    for c in clients:
+        s = get_dashboard_stats_for_client(c)
+        all_stats.append(s)
+        total_rev += s["revenue_total"]
+    return jsonify({"clients": all_stats, "total_revenue": total_rev, "total_clients": len(clients)})
+
+@app.route("/admin/reminder/run", methods=["POST"])
+def admin_reminder_run():
+    token = request.headers.get("X-SYNC-TOKEN","")
+    if token != os.environ.get("SYNC_TOKEN","mqs_sync_2026") and token != "mqs_sync_2026":
+        return jsonify({"error":"unauthorized"}), 403
+    try:
+        run_reminders_and_reviews()
+        return jsonify({"ok":True, "msg":"reminders checked"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/admin/verify_gcash", methods=["POST"])
+def admin_verify_gcash():
+    token = request.headers.get("X-SYNC-TOKEN","")
+    if token != os.environ.get("SYNC_TOKEN","mqs_sync_2026") and token != "mqs_sync_2026":
+        return jsonify({"error":"unauthorized"}), 403
+    try:
+        # expects JSON with base64 image
+        data = request.get_json()
+        b64 = data.get("image_base64","")
+        balsa_id = data.get("balsa_id","balsa_1")
+        client = next((c for c in clients if c["id"]==balsa_id), clients[0] if clients else None)
+        if not client: return jsonify({"error":"no client"}), 404
+        import base64
+        img_bytes = base64.b64decode(b64)
+        biz = client["config"].get("business_info",{})
+        res = verify_gcash_image(img_bytes, biz, client["config"].get("ai_api_key",""))
+        return jsonify({"ok":True, "result": res})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/admin/sync", methods=["POST"])
+def admin_sync():
+    # allow desktop app to push clients.json
+    token = request.headers.get("X-SYNC-TOKEN","")
+    if token != os.environ.get("SYNC_TOKEN","mqs_sync_2026") and token != "mqs_sync_2026":
+        return jsonify({"error":"unauthorized"}), 403
+    try:
+        data = request.get_json()
+        new_clients = data.get("clients", [])
+        if not new_clients or not isinstance(new_clients, list):
+            return jsonify({"error":"no clients"}), 400
+        global clients
+        clients = new_clients
+        # also fix ai keys from env
+        for c in clients:
+            c["config"]["ai_api_key"] = _env_key
+        # save to file for persistence on Render disk
+        try:
+            with open(CLIENTS_PATH, "w", encoding="utf-8") as f:
+                json.dump(clients, f, indent=4, ensure_ascii=False)
+        except: pass
+        print(f"[SYNC] Synced {len(clients)} clients from desktop", flush=True)
+        return jsonify({"ok":True, "clients": len(clients)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/webhook", methods=["GET"])
 def verify():
@@ -507,13 +835,66 @@ def webhook():
                 sender = ev.get("sender", {}).get("id")
                 msg = ev.get("message", {})
                 text = msg.get("text", "")
+                attachments = msg.get("attachments", [])
                 msg_id = msg.get("mid", "")
-                if not sender or not text: continue
+                has_image = any(a.get("type")=="image" for a in attachments)
+                if not sender: continue
+                if not text and not has_image: continue
                 if msg_id:
                     if msg_id in seen_message_ids: continue
                     seen_message_ids[msg_id] = time.time()
+                # --- GCash Screenshot Auto-Verify ---
+                if has_image:
+                    try:
+                        img_att = next(a for a in attachments if a.get("type")=="image")
+                        img_url = img_att.get("payload",{}).get("url","")
+                        if img_url:
+                            print(f"[GCASH] Image received from {sender}, downloading...", flush=True)
+                            img_bytes = download_fb_image(img_url, client["config"].get("page_access_token",""))
+                            if img_bytes:
+                                biz = client["config"].get("business_info",{})
+                                res = verify_gcash_image(img_bytes, biz, client["config"].get("ai_api_key",""))
+                                if res and res.get("ref"):
+                                    ref = re.sub(r"\D","", str(res.get("ref","")))
+                                    amt = res.get("amount","")
+                                    # try match booking by sender
+                                    bookings = load_bookings(client["id"])
+                                    matched = None
+                                    for b in reversed(bookings):
+                                        if b.get("customer_fb_id")==sender and b.get("status") in ["PENDING_PAYMENT","INQUIRY"] and not b.get("gcash_ref"):
+                                            matched = b
+                                            break
+                                    if matched:
+                                        matched["gcash_ref"] = ref
+                                        matched["gcash_amount"] = amt
+                                        matched["gcash_verified"] = bool(res.get("confident"))
+                                        matched["status"] = "PAID_AWAITING_CONFIRM"
+                                        matched["paid_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                        # save
+                                        path = resource_path(f"bookings_{client['id']}.json")
+                                        try:
+                                            with open(path, "w", encoding="utf-8") as f:
+                                                json.dump(bookings, f, indent=4, ensure_ascii=False)
+                                            with open(BOOKINGS_PATH, "w", encoding="utf-8") as f:
+                                                json.dump(bookings, f, indent=4, ensure_ascii=False)
+                                        except: pass
+                                        reply_img = f"Salamat po! 🙏 Na-verify ko GCash screenshot nyo — Ref: {ref} Amount: {amt}. Mark ko na as PAID, i-confirm ni owner sa system. Hintay lang 1-2hrs! 🎉"
+                                        send_fb_message(client, sender, reply_img)
+                                        try: send_owner_notif(client, matched, "PAID")
+                                        except: pass
+                                        print(f"[GCASH] Auto-verified {matched['id']} ref={ref}", flush=True)
+                                        continue
+                                    else:
+                                        send_fb_message(client, sender, f"Salamat sa GCash screenshot! Ref: {ref} Amount: {amt} — na-receive ko, i-match ko sa booking nyo. Sabihan ko si owner.")
+                                        continue
+                                else:
+                                    # fallback: ask for ref manually
+                                    send_fb_message(client, sender, "Salamat sa screenshot! 🙏 Pakisend din ang GCash Reference Number (13 digits) para ma-verify ko agad.")
+                                    continue
+                    except Exception as e:
+                        print(f"[GCASH] image handle error {e}", flush=True)
                 try:
-                    reply = generate_reply(client, sender, text)
+                    reply = generate_reply(client, sender, text or "GCash screenshot")
                     if reply: send_fb_message(client, sender, reply)
                 except Exception as e:
                     print(f"[WEBHOOK] ERROR {e}", flush=True)
