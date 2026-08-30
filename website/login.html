@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="tl">
+<html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Login — MQS ChatPilot</title>
@@ -22,20 +22,20 @@
 </style>
 </head>
 <body>
-<nav class="nav"><div class="nav-inner"><a class="brand" href="/"><span class="dot">●</span> MQS <strong>ChatPilot</strong></a><div class="nav-links"><a href="/">Home</a><a href="/#pricing">Presyo</a></div><div class="nav-cta"><a class="btn ghost" href="/register">Register</a></div></div></nav>
+<nav class="nav"><div class="nav-inner"><a class="brand" href="/"><span class="dot">●</span> MQS <strong>ChatPilot</strong></a><div class="nav-links"><a href="/">Home</a><a href="/#pricing">Pricing</a></div><div class="nav-cta"><a class="btn ghost" href="/register">Register</a></div></div></nav>
 <div class="auth-page">
   <div class="auth-card">
-    <h2>Mag-login</h2><p class="sub">Para ma-edit mo AI ng balsa mo — trial 1 day lang, after 24h tatanungin kung mag-avail ka.</p>
+    <h2>Welcome back</h2><p class="sub">Login to edit your balsa AI — 1 day trial, we’ll ask after 24 hours if you want to continue.</p>
     <div id="err" class="err"></div>
-    <label>Email <input id="email" type="email" placeholder="juan@gmail.com"></label>
-    <label>Password <input id="pass" type="password" placeholder="••••••••"></label>
+    <label>Email <input id="email" type="email" placeholder="Enter your email address"></label>
+    <label>Password <input id="pass" type="password" placeholder="Enter your password"></label>
     <button class="btn primary full" onclick="doLogin()">Login →</button>
     <div class="divider">or</div>
     <div class="oauth">
-      <button class="g" onclick="oauth('google')">🔵 Google</button>
-      <button class="f" onclick="oauth('facebook')">ⓕ Facebook</button>
+      <button class="g" onclick="oauth('google')">🔵 Continue with Google</button>
+      <button class="f" onclick="oauth('facebook')">ⓕ Continue with Facebook</button>
     </div>
-    <p class="small" style="margin-top:12px;text-align:center">Wala pa account? <a href="/register" style="color:var(--accent2);text-decoration:underline">Register free trial</a></p>
+    <p class="small" style="margin-top:12px;text-align:center">No account yet? <a href="/register" style="color:var(--accent2);text-decoration:underline">Register for free trial</a></p>
     <p class="small" style="text-align:center;margin-top:6px"><a href="/" style="color:var(--text2)">← Back to Home</a></p>
   </div>
 </div>
@@ -44,14 +44,13 @@ function showErr(m){const e=document.getElementById('err');e.textContent=m;e.sty
 async function doLogin(){
   const email=document.getElementById('email').value.trim();
   const pass=document.getElementById('pass').value;
-  if(!email||!pass) return showErr('Lagay email at password');
+  if(!email||!pass) return showErr('Please enter email and password');
   const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email, password:pass})});
   const j=await r.json();
   if(j.ok){ location.href='/dashboard'; } else showErr(j.error||'Login failed');
 }
 async function oauth(p){
-  // mock OAuth - just register/login with prompt
-  const email=prompt('Mock '+p+' login — lagay email mo (trial agad):');
+  const email=prompt('Mock '+p+' login — enter your email (trial instantly):');
   if(!email) return;
   const r=await fetch('/api/oauth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:p, email})});
   const j=await r.json();

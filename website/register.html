@@ -29,12 +29,12 @@
     <h2>Start Free Trial — 1 Day</h2><p class="sub">Full features, 1 balsa. After 24 hours, tatanungin ka kung gusto mo mag-avail (monthly). No card.</p>
     <div id="err" class="err"></div>
     <div class="grid2">
-      <label>Balsa Name <input id="balsa" placeholder="Balsa ni Mac"></label>
-      <label>Owner Name <input id="name" placeholder="Mac David"></label>
+      <label>Balsa / Business Name <input id="balsa" placeholder="Enter your business name"></label>
+      <label>Full Name <input id="name" placeholder="Enter your fullname here"></label>
     </div>
-    <label>Email <input id="email" type="email" placeholder="juan@gmail.com"></label>
-    <label>Password <input id="pass" type="password" placeholder="min 6 chars"></label>
-    <label>GCash Number <input id="gcash" placeholder="09123456789"></label>
+    <label>Email <input id="email" type="email" placeholder="Enter your email address"></label>
+    <label>Password <input id="pass" type="password" placeholder="Enter your password (min 6 characters)"></label>
+    <label>GCash Number <input id="gcash" placeholder="Enter your GCash number"></label>
     <label>Plan
       <select id="plan">
         <option value="trial">Trial 1 Day — ₱0</option>
@@ -56,8 +56,8 @@
 function showErr(m){const e=document.getElementById('err');e.textContent=m;e.style.display='block'}
 async function doReg(){
   const body={balsa_name:document.getElementById('balsa').value.trim(), name:document.getElementById('name').value.trim(), email:document.getElementById('email').value.trim(), password:document.getElementById('pass').value, gcash:document.getElementById('gcash').value.trim(), plan:document.getElementById('plan').value};
-  if(!body.email||!body.password||!body.balsa_name) return showErr('Lagay balsa name, email, password');
-  if(body.password.length<6) return showErr('Password min 6 chars');
+  if(!body.email||!body.password||!body.balsa_name) return showErr('Please enter business name, email and password');
+  if(body.password.length<6) return showErr('Password must be at least 6 characters');
   const r=await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json();
   if(j.ok){ alert('Trial started! 1 day — after 24h tatanungin ka kung mag-avail.'); location.href='/dashboard'; } else showErr(j.error||'Register failed');

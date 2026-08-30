@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="tl">
+<html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard — MQS ChatPilot</title>
@@ -30,53 +30,53 @@ textarea{min-height:70px;resize:vertical}
   <aside class="side">
     <h3>MENU</h3>
     <a href="#" class="active">⚙ Business Info (AI)</a>
-    <a href="#" onclick="alert('Bookings nasa desktop app pa — next update isama sa web')">📅 Bookings</a>
-    <a href="#" onclick="alert('Dashboard analytics nasa desktop — next update web sync')">📊 Analytics</a>
-    <a href="#" onclick="alert('GCash verify nasa Messenger/desktop — web upload soon')">🖼 GCash Verify</a>
+    <a href="#" onclick="alert('Bookings are in the desktop app — web sync coming next update')">📅 Bookings</a>
+    <a href="#" onclick="alert('Analytics is in the desktop app — web sync coming next')">📊 Analytics</a>
+    <a href="#" onclick="alert('GCash verify via Messenger/desktop — web upload coming soon')">🖼 GCash Verify</a>
     <h3 style="margin-top:14px">BILLING</h3>
     <a href="#" onclick="showBilling()">💳 Plan & Billing</a>
     <a href="#" onclick="logout()">🚪 Logout</a>
   </aside>
   <main class="main">
     <div id="banner" class="banner trial" style="display:none"></div>
-    <h2>Customize AI — <span style="color:var(--text2);font-weight:400">dito mo i-edit lahat, auto-update si AI</span></h2>
-    <p class="small muted" style="margin-bottom:12px">Naka-login ka na — lahat ng ibahin mo dito, yun na sasabihin ni AI sa Messenger. Trial 1 day, after 24h tatanungin kung mag-avail.</p>
+    <h2>Customize Your AI — <span style="color:var(--text2);font-weight:400">edit here, AI updates instantly</span></h2>
+    <p class="small muted" style="margin-bottom:12px">You’re logged in — whatever you change here is what the AI will say on Messenger. 1 day trial, we’ll ask after 24 hours if you want to continue.</p>
     <div id="form">
       <div class="grid2">
-        <label>Balsa Name <input id="biz_name"></label>
-        <label>Location <input id="biz_loc"></label>
+        <label>Business Name <input id="biz_name" placeholder="Enter your business name"></label>
+        <label>Location <input id="biz_loc" placeholder="Enter your location (e.g., Calatagan, Batangas)"></label>
       </div>
       <div class="grid2">
-        <label>Price Day Tour <input id="biz_price" placeholder="3500 (7am-4pm)"></label>
-        <label>Capacity <input id="biz_cap" placeholder="15 pax"></label>
+        <label>Price Day Tour <input id="biz_price" placeholder="Enter price (e.g., 3500)"></label>
+        <label>Capacity <input id="biz_cap" placeholder="Enter capacity (e.g., 15 pax)"></label>
       </div>
-      <label>Inclusions <textarea id="biz_inc" placeholder="Cottage, videoke, ihawan..."></textarea></label>
+      <label>Inclusions <textarea id="biz_inc" placeholder="Enter inclusions (e.g., cottage, videoke, grill, life vest)"></textarea></label>
       <div class="grid2">
-        <label>GCash Number <input id="biz_gcash"></label>
-        <label>GCash Name <input id="biz_gcash_name"></label>
+        <label>GCash Number <input id="biz_gcash" placeholder="Enter your GCash number"></label>
+        <label>GCash Name <input id="biz_gcash_name" placeholder="Enter GCash account name"></label>
       </div>
       <div class="grid2">
-        <label>Contact <input id="biz_contact"></label>
-        <label>Downpayment <input id="biz_down"></label>
+        <label>Contact Number <input id="biz_contact" placeholder="Enter your contact number"></label>
+        <label>Downpayment <input id="biz_down" placeholder="Enter downpayment (e.g., 1000)"></label>
       </div>
-      <label>Google Maps Link <input id="biz_maps"></label>
-      <label>Extra Info <textarea id="biz_extra"></textarea></label>
+      <label>Google Maps Link <input id="biz_maps" placeholder="Enter your Google Maps link"></label>
+      <label>Extra Info <textarea id="biz_extra" placeholder="Enter extra info (e.g., free parking, near beach)"></textarea></label>
       <div class="card2">
-        <h4>🔒 Bagyo / Vacation</h4>
+        <h4>🔒 Storm / Vacation</h4>
         <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="vac_on"> Vacation Mode ON</label>
         <div class="grid2">
           <label>Until <input id="vac_until" type="date"></label>
-          <label>Reason <input id="vac_reason" placeholder="Bagyo"></label>
+          <label>Reason <input id="vac_reason" placeholder="Enter reason (e.g., Typhoon)"></label>
         </div>
       </div>
       <button class="btn primary full" onclick="saveBiz()">💾 Save — AI Updated!</button>
-      <p class="small muted" style="margin-top:8px">Auto-sync sa cloud — no need Sync button, auto na.</p>
+      <p class="small muted" style="margin-top:8px">Auto-sync to cloud — no Sync button needed, it’s automatic.</p>
     </div>
     <div id="billing" class="card2" style="display:none">
       <h4>💳 Billing</h4>
       <p>Plan: <strong id="plan"></strong> • Trial ends: <span id="trial_end"></span></p>
-      <p class="small muted">After trial, pili ka Starter ₱299/mo or Pro ₱699 — GCash/Maya. Contact MQS TECH sa FB.</p>
-      <a class="btn primary" href="#" onclick="alert('GCash checkout next update — contact MQS TECH muna sa FB for manual avail')">Mag-avail na →</a>
+      <p class="small muted">After trial, choose Starter ₱299/mo or Pro ₱699 — GCash/Maya. Contact MQS TECH on Facebook.</p>
+      <a class="btn primary" href="#" onclick="alert('GCash checkout coming next update — contact MQS TECH on Facebook for manual activation')">Upgrade Now →</a>
     </div>
   </main>
 </div>
@@ -91,11 +91,11 @@ async function loadMe(){
   document.getElementById('plan').textContent=j.user.plan; document.getElementById('trial_end').textContent=j.trial_end;
   const banner=document.getElementById('banner');
   if(j.trial_expired){
-    banner.className='banner expired'; banner.style.display='block'; banner.innerHTML='⏰ Trial expired na (1 day)! Nagustuhan mo ba? <a href="#" onclick="showBilling()" style="color:#fff;text-decoration:underline">Mag-avail na — ₱299/mo</a> • Contact MQS TECH';
+    banner.className='banner expired'; banner.style.display='block'; banner.innerHTML='⏰ Your 1-day trial has expired! Did you like it? <a href="#" onclick="showBilling()" style="color:#fff;text-decoration:underline">Upgrade — ₱299/mo</a> • Contact MQS TECH';
   } else if(j.trial_hours_left<=6){
-    banner.style.display='block'; banner.innerHTML='⏰ Trial mo matatapos in '+j.trial_hours_left+'h — gusto mo mag-avail? <a href="#" onclick="showBilling()" style="color:#fff;text-decoration:underline">Piliin plan</a>';
+    banner.style.display='block'; banner.innerHTML='⏰ Your trial ends in '+j.trial_hours_left+'h — want to continue? <a href="#" onclick="showBilling()" style="color:#fff;text-decoration:underline">Choose a plan</a>';
   } else {
-    banner.style.display='block'; banner.textContent='✅ Trial active — '+j.trial_hours_left+'h left (1 day trial). After 24h tatanungin ka kung mag-avail.';
+    banner.style.display='block'; banner.textContent='✅ Trial active — '+j.trial_hours_left+'h left (1 day trial). After 24 hours we’ll ask if you want to continue.';
   }
 }
 function showBilling(){ document.getElementById('billing').style.display='block'; document.getElementById('billing').scrollIntoView({behavior:'smooth'}); }
@@ -103,7 +103,7 @@ async function saveBiz(){
   const body={name:biz_name.value, location:biz_loc.value, price_day:biz_price.value, capacity:biz_cap.value, inclusions:biz_inc.value, gcash_number:biz_gcash.value, gcash_name:biz_gcash_name.value, contact:biz_contact.value, downpayment:biz_down.value, google_maps_link:biz_maps.value, extra_info:biz_extra.value, vacation:{enabled:vac_on.checked, until:vac_until.value, reason:vac_reason.value}};
   const r=await fetch('/api/save-business',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json();
-  if(j.ok) alert('Saved! AI updated — test mo sa Messenger.'); else alert(j.error||'Save failed');
+  if(j.ok) alert('Saved! AI updated — try it on Messenger.'); else alert(j.error||'Save failed');
 }
 async function logout(){ await fetch('/api/logout',{method:'POST'}); location.href='/'; }
 loadMe();
