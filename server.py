@@ -461,13 +461,19 @@ def verify_gcash_image(image_bytes, biz, api_key):
         "If clearly GCash receipt, confident=true else false."
     )
     b64 = base64.b64encode(image_bytes).decode()
-    # Try new google.genai vision first
-    for key in keys:
+    # Try google.genai vision - use ONLY latest models (3.6 + flash-latest), 2.5/1.5 are 404 now
+    last_status = None
+    for idx, key in enumerate(keys):
+        if idx > 0:
+            if last_status == 429:
+                print(f"[GCASH VISION] Quota hit, instant switch to key {idx+1}/{len(keys)}", flush=True)
+            elif last_status == 503:
+                time.sleep(0.4)
         try:
             from google import genai as genai_new
             from google.genai import types
             client_ai = genai_new.Client(api_key=key)
-            for mdl in ["gemini-2.5-flash", "gemini-flash-latest", "gemini-1.5-flash"]:
+            for mdl in ["gemini-3.6-flash", "gemini-flash-latest"]:
                 try:
                     resp = client_ai.models.generate_content(
                         model=mdl,
@@ -479,7 +485,6 @@ def verify_gcash_image(image_bytes, biz, api_key):
                         ]
                     )
                     txt = (resp.text or "").strip()
-                    # extract JSON
                     m = re.search(r"\{.*?\}", txt, re.S)
                     if m:
                         j = json.loads(m.group(0))
@@ -487,14 +492,27 @@ def verify_gcash_image(image_bytes, biz, api_key):
                             print(f"[GCASH VISION] {mdl} success ref={j.get('ref')} amt={j.get('amount')}", flush=True)
                             return j
                     print(f"[GCASH VISION] {mdl} no ref in: {txt[:100]}", flush=True)
+                    last_status = 200
                 except Exception as e:
-                    print(f"[GCASH VISION] {mdl} error {e}", flush=True)
-                    continue
+                    msg = str(e)
+                    if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+                        last_status = 429
+                        print(f"[GCASH VISION] {mdl} 429 quota, try next key", flush=True)
+                        break
+                    elif "503" in msg:
+                        last_status = 503
+                        print(f"[GCASH VISION] {mdl} 503, try next model", flush=True)
+                        continue
+                    else:
+                        last_status = 400
+                        print(f"[GCASH VISION] {mdl} error {e}", flush=True)
+                        break
         except Exception as e:
             print(f"[GCASH VISION] genai error {e}", flush=True)
-        # fallback to direct REST with base64
+            last_status = 400
+        # REST fallback - also only latest models
         try:
-            for mdl in ["gemini-1.5-flash", "gemini-2.0-flash"]:
+            for mdl in ["gemini-3.6-flash", "gemini-flash-latest"]:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={key}"
                 payload = {"contents":[{"role":"user","parts":[{"text":prompt},{"inline_data":{"mime_type":"image/jpeg","data":b64}}]}]}
                 r = requests.post(url, json=payload, timeout=15)
@@ -506,8 +524,19 @@ def verify_gcash_image(image_bytes, biz, api_key):
                         if j.get("ref"):
                             print(f"[GCASH VISION REST] {mdl} success", flush=True)
                             return j
+                    last_status = 200
+                elif r.status_code==429:
+                    last_status = 429
+                    print(f"[GCASH VISION REST] {mdl} 429", flush=True)
+                    break
+                elif r.status_code==503:
+                    last_status = 503
+                    print(f"[GCASH VISION REST] {mdl} 503", flush=True)
+                    continue
                 else:
-                    print(f"[GCASH VISION REST] {mdl} {r.status_code}", flush=True)
+                    last_status = r.status_code
+                    print(f"[GCASH VISION REST] {mdl} {r.status_code}: {r.text[:80]}", flush=True)
+                    break
         except Exception as e:
             print(f"[GCASH VISION REST] error {e}", flush=True)
     return None
@@ -758,11 +787,21 @@ def generate_reply(client, sender_id, text):
         sess["history"].append(f"System: {cal_info}")
     result = call_ai(api_key, biz, sess["history"], text + cal_info, user_name)
     if result:
+        # strip hello if not first message (3+ history means mid-convo)
+        if len(sess["history"]) > 3 and result.lower().startswith("hello"):
+            result = re.sub(r"^hello[^.!]*[.!]?\s*", "", result, flags=re.I).strip()
+            if result: result = result[0].upper() + result[1:] if len(result)>1 else result
         sess["history"].append(f"AI: {result}")
         save_sessions()
         return result
 
     fallback = smart_fallback_reply(text, biz, user_name)
+    # also strip hello from fallback if not greeting intent
+    if len(sess["history"]) > 3 and fallback.lower().startswith("hello"):
+        # only allow hello if user actually greeted
+        if not any(k in text.lower() for k in ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]):
+            fallback = re.sub(r"^hello[^.!]*[.!]?\s*", "", fallback, flags=re.I).strip()
+            if fallback: fallback = fallback[0].upper() + fallback[1:] if len(fallback)>1 else fallback
     sess["history"].append(f"AI (Fallback): {fallback}")
     save_sessions()
     return fallback

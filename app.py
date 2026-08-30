@@ -1453,13 +1453,19 @@ class CCPTMessengerBot(ctk.CTk):
                 f"Expected GCash receiver: {biz.get('gcash_number','')} ({biz.get('gcash_name','')}), expected down {biz.get('downpayment','1000')}."
             )
             keys = [k.strip() for k in api_key.split(",") if k.strip()]
-            import re as _re, json as _js
-            for key in keys:
+            import re as _re, json as _js, time as _time
+            last_status = None
+            for idx, key in enumerate(keys):
+                if idx > 0:
+                    if last_status == 429:
+                        self.log(f"  Quota hit, instant switch key {idx+1}/{len(keys)}")
+                    elif last_status == 503:
+                        _time.sleep(0.4)
                 try:
                     from google import genai as genai_new
                     from google.genai import types
                     client_ai = genai_new.Client(api_key=key)
-                    for mdl in ["gemini-2.5-flash", "gemini-flash-latest", "gemini-1.5-flash"]:
+                    for mdl in ["gemini-3.6-flash", "gemini-flash-latest"]:
                         try:
                             resp = client_ai.models.generate_content(
                                 model=mdl,
@@ -1472,16 +1478,29 @@ class CCPTMessengerBot(ctk.CTk):
                                 if j.get("ref"):
                                     self.log(f"✓ GCash Vision ({mdl}) Ref={j.get('ref')} Amt={j.get('amount')}")
                                     return j
+                            last_status = 200
                         except Exception as me:
-                            self.log(f"  vision {mdl} fail: {me}")
-                            continue
+                            msg = str(me)
+                            if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+                                last_status = 429
+                                self.log(f"  vision {mdl} 429 quota, try next key")
+                                break
+                            elif "503" in msg:
+                                last_status = 503
+                                self.log(f"  vision {mdl} 503, try next model")
+                                continue
+                            else:
+                                last_status = 400
+                                self.log(f"  vision {mdl} fail: {me}")
+                                break
                 except Exception as e:
                     self.log(f"  genai error: {e}")
-                # REST fallback
+                    last_status = 400
+                # REST fallback - latest models only
                 try:
                     import requests, base64 as _b64
                     b64 = _b64.b64encode(img_bytes).decode()
-                    for mdl in ["gemini-1.5-flash"]:
+                    for mdl in ["gemini-3.6-flash", "gemini-flash-latest"]:
                         url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={key}"
                         payload = {"contents":[{"role":"user","parts":[{"text":prompt},{"inline_data":{"mime_type":"image/jpeg","data":b64}}]}]}
                         r = requests.post(url, json=payload, timeout=15)
@@ -1491,6 +1510,17 @@ class CCPTMessengerBot(ctk.CTk):
                             if m:
                                 j = _js.loads(m.group(0))
                                 if j.get("ref"): return j
+                            last_status = 200
+                        elif r.status_code==429:
+                            last_status = 429
+                            self.log(f"  REST {mdl} 429")
+                            break
+                        elif r.status_code==503:
+                            last_status = 503
+                            continue
+                        else:
+                            last_status = r.status_code
+                            break
                 except: pass
             # fallback regex if AI fails - just guess digits
             m = _re.search(r"(\d{9,13})", prompt)
@@ -1850,11 +1880,15 @@ class CCPTMessengerBot(ctk.CTk):
                 history_text = "\n".join(session["history"][-6:])
                 prompt = f"{system_prompt}\n\nConversation history:\n{history_text}\n\nLatest customer message: {user_text}\nReply in Tagalog, short, warm, may po:"
                 # new model for new keys is gemini-3.6-flash
-                for mdl in ["gemini-3.6-flash", "gemini-flash-latest", "gemini-2.5-flash"]:
+                for mdl in ["gemini-3.6-flash", "gemini-flash-latest"]:
                     try:
                         resp = client.models.generate_content(model=mdl, contents=prompt)
                         text = (resp.text or "").strip()
                         if text:
+                            # strip repetitive hello if not first message
+                            if len(session["history"]) > 3 and text.lower().startswith("hello"):
+                                text = re.sub(r"^hello[^.!]*[.!]?\s*", "", text, flags=re.I).strip()
+                                if text: text = text[0].upper() + text[1:] if len(text)>1 else text
                             session["history"].append(f"AI: {text}")
                             self.log(f"✓ Gemini ({mdl}) reply ok")
                             return text
@@ -1869,12 +1903,15 @@ class CCPTMessengerBot(ctk.CTk):
                 genai.configure(api_key=api_key)
                 history_text = "\n".join(session["history"][-6:])
                 prompt = f"{system_prompt}\n\nConversation history:\n{history_text}\n\nLatest customer message: {user_text}\nReply (Tagalog, short):"
-                for mdl in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-pro"]:
+                for mdl in ["gemini-3.6-flash", "gemini-flash-latest"]:
                     try:
                         model = genai.GenerativeModel(mdl)
                         resp = model.generate_content(prompt)
                         text = (resp.text or "").strip()
                         if text:
+                            if len(session["history"]) > 3 and text.lower().startswith("hello"):
+                                text = re.sub(r"^hello[^.!]*[.!]?\s*", "", text, flags=re.I).strip()
+                                if text: text = text[0].upper() + text[1:] if len(text)>1 else text
                             session["history"].append(f"AI: {text}")
                             return text
                     except: continue
@@ -1948,6 +1985,9 @@ class CCPTMessengerBot(ctk.CTk):
             return f"Got it! {session['pending_date']} - {session['pending_pax']} pax - {session.get('pending_tour','Day Tour')}. Anong pangalan po at contact number para i-hold booking? (ex: Juan 09123456789)"
 
         if any(k in t for k in ["magkano", "price", "hm ", "how much", "presyo"]):
+            # don't say Hello if already in conversation (has pending info)
+            if session.get("pending_date") or session.get("pending_pax"):
+                return f"Sa {name}, P{biz.get('price_day_amount','3500')} lang po Day Tour 7am-4pm (WALANG overnight) — kasama na {inclusions}, capacity {capacity}. Location: {biz.get('location','Calatagan')} 📍 Maps: {maps_link}. Anong date po at ilan pax?"
             return f"Hello po Mam/Sir! 😊 Sa {name}, P{biz.get('price_day_amount','3500')} lang po Day Tour 7am-4pm (WALANG overnight) — kasama na {inclusions}, capacity {capacity}. Location: {biz.get('location','Calatagan')} 📍 Maps: {maps_link}. Anong date po at ilan pax para ma-hold ko booking nyo?"
 
         # only treat as capacity question if asking (ilan/kasya/capacity) without providing number+pax combo
@@ -1985,7 +2025,10 @@ class CCPTMessengerBot(ctk.CTk):
         if any(k in t for k in ["gcash", "bayad", "payment", "down"]):
             return f"GCash payment po: {gcash} ({gcash_name}), Downpayment P{down}. After send, pakisend Ref No. dito para auto-confirm booking nyo sa {session.get('pending_date','date nyo')} 😊"
 
-        return f"Hello po! Salamat sa inquiry sa {name} 😊 Day {price_day}, Night {price_night}, Capacity {capacity}. GCash {gcash} ({gcash_name}) Down P{down}. Anong date po, ilan pax, at Day/Night po ba para ma-hold ko booking nyo?"
+        # final fallback - no Hello if already chatting
+        if session.get("pending_date") or len(session.get("history",[])) > 2:
+            return f"Salamat sa inquiry sa {name} 😊 Day {price_day}, Capacity {capacity}. Anong date po at ilan pax para ma-hold ko booking nyo? Contact {contact} 📞"
+        return f"Hello po! Salamat sa inquiry sa {name} 😊 Day {price_day}, Capacity {capacity}. GCash {gcash} ({gcash_name}) Down P{down}. Anong date po, ilan pax para ma-hold ko booking nyo?"
 
     def send_facebook_message(self, recipient_id, text):
         token = self.config_data.get("page_access_token","")
