@@ -846,10 +846,25 @@ def get_dashboard_stats_for_client(client):
         "price": price, "down": down
     }
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="website", static_url_path="")
 
 @app.route("/")
-def home(): return jsonify({"status":"MQS ChatPilot Cloud Live with Gemini","clients":len(clients)})
+def home():
+    # serve dark landing page if HTML requested, else JSON for health checks
+    if "text/html" in request.headers.get("Accept",""):
+        try:
+            with open(os.path.join(app.static_folder, "index.html"), "r", encoding="utf-8") as f:
+                return f.read(), 200, {"Content-Type": "text/html"}
+        except: pass
+    return jsonify({"status":"MQS ChatPilot Cloud Live with Gemini","clients":len(clients)})
+
+@app.route("/site")
+def site():
+    try:
+        with open(os.path.join(app.static_folder, "index.html"), "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html"}
+    except Exception as e:
+        return f"Site not found: {e}", 404
 
 @app.route("/health")
 def health(): return jsonify({"ok":True})
