@@ -1159,6 +1159,12 @@ def terms():
         with open(os.path.join(app.static_folder, "terms.html"), "r", encoding="utf-8") as f:
             return f.read(), 200, {"Content-Type": "text/html"}
     except: return redirect("/")
+@app.route("/data-deletion")
+def data_deletion():
+    try:
+        with open(os.path.join(app.static_folder, "data-deletion.html"), "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html"}
+    except: return redirect("/privacy")
 
 @app.route("/health")
 def health(): return jsonify({"ok":True})
