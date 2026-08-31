@@ -28,9 +28,19 @@ th{color:var(--text2);font-size:.8rem}
   <p class="small muted" style="margin-top:8px">Default: mqs_sync_2026 (palitan sa Render env ADMIN_PASS)</p>
 </div>
 <div id="panel" class="wrap" style="display:none">
+  <div class="card" style="border-color:var(--accent2)">
+    <h3>🔒 Change Admin Password (hidden)</h3>
+    <p class="small muted">Para di mapasok ng iba — palitan mo admin pass ng /mqs-admin. Hindi bawal kay Meta, sa atin to.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+      <input id="old_pass" type="password" placeholder="Old password" style="background:var(--card2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:8px">
+      <input id="new_pass" type="password" placeholder="New password (min 6)" style="background:var(--card2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:8px">
+    </div>
+    <button class="btn primary" style="margin-top:8px" onclick="changeAdminPass()">Change Admin Password →</button>
+    <p class="small muted" style="margin-top:6px">Stored in Supabase (persistent) + file — kahit mag-deploy, andun pa.</p>
+  </div>
   <div class="card">
     <h3>Customers — <span id="count"></span></h3>
-    <p class="small muted">Lahat ng nag-register / trial. Click para i-manage.</p>
+    <p class="small muted">Lahat ng nag-register / trial. Click para i-manage. “Reset Pass” pag nakalimutan ni customer.</p>
     <table><thead><tr><th>Email</th><th>Balsa</th><th>Page</th><th>Plan</th><th>Trial</th><th>Created</th><th>Action</th></tr></thead><tbody id="tbody"></tbody></table>
   </div>
   <div class="card">
@@ -57,7 +67,7 @@ async function load(){
     const badge = u.trial_expired ? '<span class="badge expired">expired</span>' : '<span class="badge trial">'+u.trial_hours_left+'h left</span>';
     const planBadge = u.plan==='trial' ? badge : '<span class="badge paid">'+u.plan+'</span>';
     const pageInfo = u.page_connected ? `<span style="color:#5fb078">✅ ${u.page_name||u.page_id.slice(0,6)}</span>` : `<span style="color:#ff8a8a">❌ not connected</span> <button onclick="setPage('${u.id}')" style="padding:2px 6px;border-radius:4px;background:var(--accent2);color:#fff;border:none;cursor:pointer;font-size:.75rem">Set Token</button>`;
-    tr.innerHTML=`<td>${u.email}</td><td>${u.balsa_name}</td><td>${pageInfo}</td><td>${planBadge}</td><td>${u.trial_expired?'expired':u.trial_hours_left+'h'}</td><td>${u.created_at}</td><td><button onclick="ext('${u.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--card2);color:var(--text);cursor:pointer">+7 days</button> <button onclick="del('${u.id}')" style="padding:4px 8px;border-radius:6px;background:var(--red);color:#fff;border:none;cursor:pointer">Del</button></td>`;
+    tr.innerHTML=`<td>${u.email}</td><td>${u.balsa_name}</td><td>${pageInfo}</td><td>${planBadge}</td><td>${u.trial_expired?'expired':u.trial_hours_left+'h'}</td><td>${u.created_at}</td><td><button onclick="ext('${u.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--card2);color:var(--text);cursor:pointer">+7 days</button> <button onclick="resetPass('${u.id}','${u.email}')" style="padding:4px 8px;border-radius:6px;background:var(--accent2);color:#fff;border:none;cursor:pointer">Reset Pass</button> <button onclick="del('${u.id}')" style="padding:4px 8px;border-radius:6px;background:var(--red);color:#fff;border:none;cursor:pointer">Del</button></td>`;
     tb.appendChild(tr);
   });
   document.getElementById('stats').textContent='Total: '+j.users.length+' • Trial: '+j.stats.trial+' • Expired: '+j.stats.expired+' • Paid: '+j.stats.paid;
@@ -77,6 +87,19 @@ async function setPage(id){
   const pid=prompt('Page ID (find at findmyfbid.com or from Graph API):')||'';
   const r=await fetch('/api/admin/set-page',{method:'POST',headers:{'Content-Type':'application/json','X-ADMIN-TOKEN':token},body:JSON.stringify({user_id:id, page_id:pid, page_access_token:token2})});
   const j=await r.json(); if(j.ok) load(); else alert(j.error||'Failed');
+}
+async function changeAdminPass(){
+  const oldp=document.getElementById('old_pass').value;
+  const newp=document.getElementById('new_pass').value;
+  if(!newp||newp.length<6) return alert('New password min 6 chars');
+  const r=await fetch('/api/admin/change-password',{method:'POST',headers:{'Content-Type':'application/json','X-ADMIN-TOKEN':token},body:JSON.stringify({old_password:oldp, new_password:newp})});
+  const j=await r.json(); if(j.ok){ alert('Admin password changed! Next login gamitin new pass.'); document.getElementById('old_pass').value=''; document.getElementById('new_pass').value=''; token=newp; } else alert(j.error||'Failed');
+}
+async function resetPass(id,email){
+  const np=prompt('New password for '+email+' (min 6, sabihin sa customer):');
+  if(!np||np.length<6) return alert('Min 6 chars');
+  const r=await fetch('/api/admin/reset-user-password',{method:'POST',headers:{'Content-Type':'application/json','X-ADMIN-TOKEN':token},body:JSON.stringify({user_id:id, new_password:np})});
+  const j=await r.json(); if(j.ok) alert('Password reset! New: '+np+' — sabihin kay '+email); else alert(j.error||'Failed');
 }
 </script>
 </body>

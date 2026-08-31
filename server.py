@@ -942,6 +942,8 @@ FB_REDIRECT_URI = os.environ.get("FB_REDIRECT_URI", "https://mqs-chatpilot.onren
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()  # anon key
 SUPABASE_TABLE = "mqs_users"
+SUPABASE_CONFIG_TABLE = "mqs_config"
+ADMIN_CONFIG_PATH = resource_path("admin_config.json")
 
 def _supabase_enabled():
     return bool(SUPABASE_URL and SUPABASE_KEY)
@@ -1023,6 +1025,40 @@ def find_user_by_id(uid):
     for u in load_users():
         if u.get("id")==uid: return u
     return None
+
+def get_admin_hash():
+    # Supabase first
+    if _supabase_enabled():
+        try:
+            r = requests.get(f"{SUPABASE_URL}/rest/v1/{SUPABASE_CONFIG_TABLE}?key=eq.admin_password&select=value", headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}, timeout=5)
+            if r.status_code==200 and r.json():
+                v = r.json()[0].get("value","")
+                if v: return v
+        except: pass
+    if os.path.exists(ADMIN_CONFIG_PATH):
+        try:
+            with open(ADMIN_CONFIG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f).get("hash","")
+        except: pass
+    # fallback to env
+    env_pw = os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"
+    return hash_pw(env_pw)
+
+def set_admin_hash(new_hash):
+    try:
+        with open(ADMIN_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump({"hash": new_hash}, f)
+    except: pass
+    if _supabase_enabled():
+        try:
+            payload = {"key": "admin_password", "value": new_hash}
+            r = requests.post(f"{SUPABASE_URL}/rest/v1/{SUPABASE_CONFIG_TABLE}", headers={**_sb_headers(), "Prefer": "resolution=merge-duplicates"}, json=payload, timeout=6)
+            if r.status_code not in (200,201,204):
+                requests.patch(f"{SUPABASE_URL}/rest/v1/{SUPABASE_CONFIG_TABLE}?key=eq.admin_password", headers=_sb_headers(), json={"value": new_hash}, timeout=6)
+        except: pass
+
+def check_admin_pw(pw):
+    return check_pw(pw, get_admin_hash()) or pw == (os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026")  # allow env plain as fallback
 
 def trial_info(user):
     try:
@@ -1411,16 +1447,49 @@ def api_logout():
 @app.route("/api/admin/login", methods=["POST"])
 def api_admin_login():
     pw = (request.get_json() or {}).get("password","")
-    expected = os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"
-    if pw == expected:
+    if check_admin_pw(pw):
         session["is_admin"] = True
         return jsonify({"ok":True})
     return jsonify({"ok":False,"error":"Wrong admin password"}), 401
 
+@app.route("/api/admin/change-password", methods=["POST"])
+def api_admin_change_password():
+    if not session.get("is_admin") and request.headers.get("X-ADMIN-TOKEN") != (os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"):
+        # also check hash
+        tok = request.headers.get("X-ADMIN-TOKEN","")
+        if not check_admin_pw(tok):
+            return jsonify({"ok":False,"error":"unauthorized"}), 403
+    data = request.get_json() or {}
+    old = data.get("old_password","")
+    new = data.get("new_password","")
+    if not new or len(new) < 6:
+        return jsonify({"ok":False,"error":"New password min 6 chars"}), 400
+    if old and not check_admin_pw(old):
+        return jsonify({"ok":False,"error":"Wrong old password"}), 401
+    set_admin_hash(hash_pw(new))
+    return jsonify({"ok":True})
+
+@app.route("/api/admin/reset-user-password", methods=["POST"])
+def api_admin_reset_user_password():
+    if not session.get("is_admin") and not check_admin_pw(request.headers.get("X-ADMIN-TOKEN","")):
+        return jsonify({"ok":False,"error":"unauthorized"}), 403
+    data = request.get_json() or {}
+    uid = data.get("user_id"); new = data.get("new_password","")
+    if not uid or not new or len(new) < 6:
+        return jsonify({"ok":False,"error":"user_id and new_password (min 6) required"}), 400
+    users = load_users()
+    for u in users:
+        if u["id"]==uid:
+            u["password"] = hash_pw(new)
+            save_users(users)
+            return jsonify({"ok":True})
+    return jsonify({"ok":False,"error":"not found"}), 404
+
 @app.route("/api/admin/users")
 def api_admin_users():
-    # check admin via session or token header
-    if not session.get("is_admin") and request.headers.get("X-ADMIN-TOKEN") != (os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"):
+    # check admin via session or token header (supports changed password)
+    tok = request.headers.get("X-ADMIN-TOKEN","")
+    if not session.get("is_admin") and not check_admin_pw(tok):
         return jsonify({"ok":False,"error":"unauthorized"}), 403
     users = load_users()
     out = []
@@ -1435,7 +1504,7 @@ def api_admin_users():
 
 @app.route("/api/admin/set-page", methods=["POST"])
 def api_admin_set_page():
-    if not session.get("is_admin") and request.headers.get("X-ADMIN-TOKEN") != (os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"):
+    if not session.get("is_admin") and not check_admin_pw(request.headers.get("X-ADMIN-TOKEN","")):
         return jsonify({"ok":False,"error":"unauthorized"}), 403
     data = request.get_json() or {}
     uid = data.get("user_id"); pid = data.get("page_id","").strip(); token = data.get("page_access_token","").strip()
@@ -1469,7 +1538,7 @@ def api_admin_set_page():
 
 @app.route("/api/admin/extend", methods=["POST"])
 def api_admin_extend():
-    if not session.get("is_admin") and request.headers.get("X-ADMIN-TOKEN") != (os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"):
+    if not session.get("is_admin") and not check_admin_pw(request.headers.get("X-ADMIN-TOKEN","")):
         return jsonify({"ok":False,"error":"unauthorized"}), 403
     data = request.get_json() or {}
     uid = data.get("user_id"); days = int(data.get("days",7))
@@ -1496,7 +1565,7 @@ def api_admin_extend():
 
 @app.route("/api/admin/delete", methods=["POST"])
 def api_admin_delete():
-    if not session.get("is_admin") and request.headers.get("X-ADMIN-TOKEN") != (os.environ.get("ADMIN_PASS") or os.environ.get("SYNC_TOKEN") or "mqs_sync_2026"):
+    if not session.get("is_admin") and not check_admin_pw(request.headers.get("X-ADMIN-TOKEN","")):
         return jsonify({"ok":False,"error":"unauthorized"}), 403
     uid = (request.get_json() or {}).get("user_id")
     users = [u for u in load_users() if u["id"]!=uid]
