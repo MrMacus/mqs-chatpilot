@@ -1147,6 +1147,18 @@ def style_css():
         with open(os.path.join(app.static_folder, "style.css"), "r", encoding="utf-8") as f:
             return f.read(), 200, {"Content-Type": "text/css"}
     except: return "", 404
+@app.route("/privacy")
+def privacy():
+    try:
+        with open(os.path.join(app.static_folder, "privacy.html"), "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html"}
+    except: return redirect("/")
+@app.route("/terms")
+def terms():
+    try:
+        with open(os.path.join(app.static_folder, "terms.html"), "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html"}
+    except: return redirect("/")
 
 @app.route("/health")
 def health(): return jsonify({"ok":True})
