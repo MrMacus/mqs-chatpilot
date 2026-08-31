@@ -4,14 +4,14 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Register Free Trial — MQS ChatPilot</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 <style>
-.auth-page{max-width:480px;margin:30px auto;padding:20px}
-.auth-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px}
+.auth-page{width:92%;max-width:480px;margin:24px auto;padding:0;box-sizing:border-box}
+.auth-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;overflow:hidden;box-sizing:border-box}
 .auth-card h2{margin-bottom:4px}
 .auth-card .sub{color:var(--text2);font-size:.9rem;margin-bottom:16px}
-.auth-card label{font-size:.85rem;color:var(--text2);display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
-.auth-card input,.auth-card select{background:var(--card2);border:1px solid var(--border);color:var(--text);padding:11px;border-radius:10px;font-size:.95rem}
+.auth-card label{font-size:.85rem;color:var(--text2);display:flex;flex-direction:column;gap:4px;margin-bottom:10px;min-width:0}
+.auth-card input,.auth-card select{background:var(--card2);border:1px solid var(--border);color:var(--text);padding:11px;border-radius:10px;font-size:.95rem;width:100%;box-sizing:border-box;min-width:0}
 .divider{display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--text2);font-size:.85rem}
 .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--border)}
 .oauth{display:flex;gap:8px}
@@ -19,8 +19,8 @@
 .oauth .g{background:var(--card2);color:var(--text)}
 .oauth .f{background:#1877F2;color:#fff;border:none}
 .err{background:#3a1f1f;border:1px solid var(--red);color:#ffb4b4;padding:8px;border-radius:8px;font-size:.85rem;display:none;margin-bottom:10px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-@media(max-width:600px){ .auth-page{padding:12px;margin:16px auto} .auth-card{padding:16px} .grid2{grid-template-columns:1fr} .auth-card input,.auth-card select{font-size:16px} }
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0}
+@media(max-width:700px){ .auth-page{width:94%;padding:0;margin:12px auto} .auth-card{padding:16px} .grid2{grid-template-columns:1fr !important;gap:0 !important} .grid2 label{margin-bottom:10px} .auth-card input,.auth-card select{font-size:16px} }
 </style>
 </head>
 <body>
@@ -30,12 +30,12 @@
     <h2>Start Free Trial — 1 Day</h2><p class="sub">Full features, 1 balsa. After 24 hours, tatanungin ka kung gusto mo mag-avail (monthly). No card.</p>
     <div id="err" class="err"></div>
     <div class="grid2">
-      <label>Balsa / Business Name <input id="balsa" placeholder="Enter your business name"></label>
-      <label>Full Name <input id="name" placeholder="Enter your full name"></label>
+      <label>Balsa / Business Name <input id="balsa" placeholder="Business name"></label>
+      <label>Full Name <input id="name" placeholder="Full name"></label>
     </div>
-    <label>Email <input id="email" type="email" placeholder="Enter your email address"></label>
-    <label>Password <input id="pass" type="password" placeholder="Enter your password (min 6 characters)"></label>
-    <label>GCash Number <input id="gcash" placeholder="Enter your GCash number"></label>
+    <label>Email <input id="email" type="email" placeholder="Email address"></label>
+    <label>Password <input id="pass" type="password" placeholder="Password (min 6 chars)"></label>
+    <label>GCash Number <input id="gcash" placeholder="GCash number"></label>
     <label>Plan
       <select id="plan">
         <option value="trial">Trial 1 Day — ₱0</option>
