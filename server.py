@@ -1068,7 +1068,7 @@ def trial_info(user):
             end = datetime.fromisoformat(user["trial_end"])
         else:
             start = datetime.fromisoformat(user.get("created_at",""))
-            end = start + timedelta(days=1)
+            end = start + timedelta(days=7)
         hours_left = int((end - now).total_seconds() // 3600)
         expired = now > end
         # also return days for display
@@ -1086,7 +1086,7 @@ def set_trial_end(user, days=1):
             user["trial_end"] = (base + timedelta(days=days)).isoformat()
         else:
             start = datetime.fromisoformat(user.get("created_at",""))
-            end = start + timedelta(days=1)
+            end = start + timedelta(days=7)
             base = end if end > datetime.now() else datetime.now()
             user["trial_end"] = (base + timedelta(days=days)).isoformat() if days != 1 else end.isoformat()
             # for new user with 1 day, keep created logic but also store
@@ -1391,7 +1391,7 @@ def api_register():
     users = load_users()
     uid = f"U{int(time.time())%1000000:06d}"
     now = datetime.now()
-    user = {"id":uid,"email":email,"password":hash_pw(pw),"name":name,"balsa_name":balsa,"gcash":gcash,"plan":plan,"created_at":now.isoformat(),"trial_end": (now + timedelta(days=1)).isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":f"{3500} (7am-4pm)","capacity":"15-20 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":gcash or "09123456789","gcash_name":name,"contact":gcash or "09123456789","downpayment":"1000","google_maps_link":"","extra_info":"","pricing_tiers": "[{\"min\":10,\"max\":15,\"price\":4500,\"label\":\"10-15 pax\"},{\"min\":16,\"max\":20,\"price\":5000,\"label\":\"16-20 pax\"}]","seasonal_enabled":"false","seasonal_pricing": "{\"rainy\":{\"months\":[6,7,8,9,10],\"label\":\"Rainy Season Promo\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":4000},{\"min\":16,\"max\":20,\"price\":4500}]},\"summer\":{\"months\":[3,4,5],\"label\":\"Summer Peak\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":5000},{\"min\":16,\"max\":20,\"price\":6000}]}}"},"vacation":{"enabled":False,"until":"","reason":""}}
+    user = {"id":uid,"email":email,"password":hash_pw(pw),"name":name,"balsa_name":balsa,"gcash":gcash,"plan":plan,"created_at":now.isoformat(),"trial_end": (now + timedelta(days=7)).isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":f"{3500} (7am-4pm)","capacity":"15-20 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":gcash or "09123456789","gcash_name":name,"contact":gcash or "09123456789","downpayment":"1000","google_maps_link":"","extra_info":"","pricing_tiers": "[{\"min\":10,\"max\":15,\"price\":4500,\"label\":\"10-15 pax\"},{\"min\":16,\"max\":20,\"price\":5000,\"label\":\"16-20 pax\"}]","seasonal_enabled":"false","seasonal_pricing": "{\"rainy\":{\"months\":[6,7,8,9,10],\"label\":\"Rainy Season Promo\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":4000},{\"min\":16,\"max\":20,\"price\":4500}]},\"summer\":{\"months\":[3,4,5],\"label\":\"Summer Peak\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":5000},{\"min\":16,\"max\":20,\"price\":6000}]}}"},"vacation":{"enabled":False,"until":"","reason":""}}
     users.append(user)
     save_users(users)
     session["user_id"] = uid
@@ -1423,7 +1423,7 @@ def api_oauth():
         users = load_users()
         uid = f"U{int(time.time())%1000000:06d}"
         now = datetime.now()
-        u = {"id":uid,"email":email,"password":hash_pw("oauth_"+provider),"name":email.split("@")[0],"balsa_name":balsa,"gcash":"","plan":"trial","created_at":now.isoformat(),"trial_end": (now + timedelta(days=1)).isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":"3500 (7am-4pm)","capacity":"15-20 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":"09123456789","gcash_name":email.split("@")[0],"contact":"09123456789","downpayment":"1000","google_maps_link":"","extra_info":"","pricing_tiers": "[{\"min\":10,\"max\":15,\"price\":4500,\"label\":\"10-15 pax\"},{\"min\":16,\"max\":20,\"price\":5000,\"label\":\"16-20 pax\"}]","seasonal_enabled":"false","seasonal_pricing": "{\"rainy\":{\"months\":[6,7,8,9,10],\"label\":\"Rainy Season Promo\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":4000},{\"min\":16,\"max\":20,\"price\":4500}]},\"summer\":{\"months\":[3,4,5],\"label\":\"Summer Peak\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":5000},{\"min\":16,\"max\":20,\"price\":6000}]}}"},"vacation":{"enabled":False,"until":"","reason":""},"oauth":provider}
+        u = {"id":uid,"email":email,"password":hash_pw("oauth_"+provider),"name":email.split("@")[0],"balsa_name":balsa,"gcash":"","plan":"trial","created_at":now.isoformat(),"trial_end": (now + timedelta(days=7)).isoformat(),"business":{"name":balsa,"location":"Calatagan, Batangas","price_day":"3500 (7am-4pm)","capacity":"15-20 pax","inclusions":"Cottage, videoke, ihawan, life vest, lutuan","gcash_number":"09123456789","gcash_name":email.split("@")[0],"contact":"09123456789","downpayment":"1000","google_maps_link":"","extra_info":"","pricing_tiers": "[{\"min\":10,\"max\":15,\"price\":4500,\"label\":\"10-15 pax\"},{\"min\":16,\"max\":20,\"price\":5000,\"label\":\"16-20 pax\"}]","seasonal_enabled":"false","seasonal_pricing": "{\"rainy\":{\"months\":[6,7,8,9,10],\"label\":\"Rainy Season Promo\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":4000},{\"min\":16,\"max\":20,\"price\":4500}]},\"summer\":{\"months\":[3,4,5],\"label\":\"Summer Peak\",\"tiers\":[{\"min\":10,\"max\":15,\"price\":5000},{\"min\":16,\"max\":20,\"price\":6000}]}}"},"vacation":{"enabled":False,"until":"","reason":""},"oauth":provider}
         users.append(u); save_users(users)
         print(f"[AUTH] OAuth {provider} new {email}", flush=True)
     session["user_id"] = u["id"]
@@ -1571,7 +1571,7 @@ def api_admin_extend():
                     u["trial_end"] = (base + timedelta(days=days)).isoformat()
                 else:
                     start = datetime.fromisoformat(u.get("created_at"))
-                    end = start + timedelta(days=1)
+                    end = start + timedelta(days=7)
                     base = end if end > datetime.now() else datetime.now()
                     u["trial_end"] = (base + timedelta(days=days)).isoformat()
             except:

@@ -27,7 +27,7 @@
 <nav class="nav"><div class="nav-inner"><a class="brand" href="/"><span class="dot">●</span> MQS <strong>ChatPilot</strong></a><div class="nav-links"><a href="/">Home</a></div><div class="nav-cta"><a class="btn ghost" href="/login">Login</a></div></div></nav>
 <div class="auth-page">
   <div class="auth-card">
-    <h2>Start Free Trial — 1 Day</h2><p class="sub">Full features, 1 Floating Cottage. After 24 hours, tatanungin ka kung gusto mo mag-avail. No card.</p>
+    <h2>Start Free Trial — 7 Days</h2><p class="sub">Full features, 1 Floating Cottage. After 7 days, tatanungin ka kung gusto mo mag-avail. No card.</p>
     <div id="err" class="err"></div>
     <div class="grid2">
       <label>Floating Cottage / Business Name <input id="balsa" placeholder="Business name"></label>
@@ -38,7 +38,7 @@
     <label>GCash Number <input id="gcash" placeholder="GCash number"></label>
     <label>Plan
       <select id="plan">
-        <option value="trial">Trial 1 Day — ₱0</option>
+        <option value="trial">Trial 7 Days — ₱0</option>
         <option value="1month">1 Month — ₱499</option>
         <option value="6months">6 Months — ₱2,499 (save ₱495)</option>
         <option value="1year">1 Year — ₱4,990 (save ₱998)</option>
@@ -61,7 +61,7 @@ async function doReg(){
   if(body.password.length<6) return showErr('Password must be at least 6 characters');
   const r=await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json();
-  if(j.ok){ alert('Trial started! 1 day — after 24h tatanungin ka kung mag-avail.'); location.href='/dashboard'; } else showErr(j.error||'Register failed');
+  if(j.ok){ alert('Trial started! 7 days — after 7 days tatanungin ka kung mag-avail.'); location.href='/dashboard'; } else showErr(j.error||'Register failed');
 }
 async function oauth(p){
   const email=prompt('Mock '+p+' register — lagay email mo:');
