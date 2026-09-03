@@ -19,7 +19,8 @@
 .oauth .g{background:var(--card2);color:var(--text)}
 .oauth .f{background:#1877F2;color:#fff;border:none}
 .err{background:#3a1f1f;border:1px solid var(--red);color:#ffb4b4;padding:8px;border-radius:8px;font-size:.85rem;display:none;margin-bottom:10px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0;align-items:end}
+.grid2 label{margin-bottom:0}
 @media(max-width:700px){ .auth-page{width:94%;padding:0;margin:12px auto} .auth-card{padding:16px} .grid2{grid-template-columns:1fr !important;gap:0 !important} .grid2 label{margin-bottom:10px} .auth-card input,.auth-card select{font-size:16px} }
 </style>
 </head>
@@ -30,7 +31,7 @@
     <h2>Start Free Trial — 1 Day</h2><p class="sub">Full features, 1 Floating Cottage. After 1 day, tatanungin ka kung gusto mo mag-avail. No card.</p>
     <div id="err" class="err"></div>
     <div class="grid2">
-      <label>Floating Cottage / Business Name <input id="balsa" placeholder="Business name"></label>
+      <label>Business Name <input id="balsa" placeholder="Business name"></label>
       <label>Full Name <input id="name" placeholder="Full name"></label>
     </div>
     <label>Email <input id="email" type="email" placeholder="Email address"></label>
