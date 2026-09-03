@@ -28,7 +28,7 @@
 <nav class="nav"><div class="nav-inner"><a class="brand" href="/"><span class="dot">●</span> MQS <strong>ChatPilot</strong></a><div class="nav-links"><a href="/">Home</a></div><div class="nav-cta"><a class="btn ghost" href="/login">Login</a></div></div></nav>
 <div class="auth-page">
   <div class="auth-card">
-    <h2>Start Free Trial — 1 Day</h2><p class="sub">Full features, 1 Floating Cottage. After 1 day, tatanungin ka kung gusto mo mag-avail. No card.</p>
+    <h2>Start Free Trial — 1 Day</h2><p class="sub">Full features, 1 Floating Cottage. After 1 day, we'll ask if you want to continue. No card required.</p>
     <div id="err" class="err"></div>
     <div class="grid2">
       <label>Business Name <input id="balsa" placeholder="Business name"></label>
@@ -51,7 +51,7 @@
       <button class="g" onclick="oauth('google')">🔵 Google</button>
       <button class="f" onclick="oauth('facebook')">ⓕ Facebook</button>
     </div>
-    <p class="small" style="margin-top:12px;text-align:center">May account na? <a href="/login" style="color:var(--accent2);text-decoration:underline">Login</a></p>
+    <p class="small" style="margin-top:12px;text-align:center">Already have an account? <a href="/login" style="color:var(--accent2);text-decoration:underline">Login</a></p>
   </div>
 </div>
 <script>
@@ -62,7 +62,7 @@ async function doReg(){
   if(body.password.length<6) return showErr('Password must be at least 6 characters');
   const r=await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json();
-  if(j.ok){ alert('Trial started! 1 day — after 1 day tatanungin ka kung mag-avail.'); location.href='/dashboard'; } else showErr(j.error||'Register failed');
+  if(j.ok){ alert('Trial started! 1 day free — we\'ll ask after 1 day if you want to continue.'); location.href='/dashboard'; } else showErr(j.error||'Register failed');
 }
 async function oauth(p){
   const email=prompt('Mock '+p+' register — lagay email mo:');
