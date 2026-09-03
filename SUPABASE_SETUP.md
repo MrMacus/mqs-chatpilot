@@ -38,6 +38,27 @@ create table if not exists mqs_config (
 );
 alter table mqs_config enable row level security;
 create policy "allow all for anon config" on mqs_config for all using (true) with check (true);
+
+-- bookings per user (for web dashboard Bookings/Analytics/GCash)
+create table if not exists mqs_bookings (
+  id text primary key,
+  user_id text not null,
+  customer_fb_id text,
+  customer_name text,
+  contact text,
+  date text,
+  tour_type text,
+  pax text,
+  price text,
+  downpayment text,
+  status text,
+  gcash_ref text,
+  created_at text,
+  updated_at text
+);
+create index if not exists idx_bookings_user on mqs_bookings(user_id);
+alter table mqs_bookings enable row level security;
+create policy "allow all for anon bookings" on mqs_bookings for all using (true) with check (true);
 ```
 
 ## 2. Get Keys

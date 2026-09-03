@@ -1590,6 +1590,145 @@ def api_admin_delete():
     save_users(users)
     return jsonify({"ok":True})
 
+# === WEB BOOKINGS / ANALYTICS / GCASH for dashboard (per user, Supabase or file fallback) ===
+BOOKINGS_TABLE = "mqs_bookings"
+def _bookings_path(uid): return resource_path(f"bookings_web_{uid}.json")
+def load_web_bookings(uid):
+    # Supabase first
+    if _supabase_enabled():
+        try:
+            r = requests.get(f"{SUPABASE_URL}/rest/v1/{BOOKINGS_TABLE}?user_id=eq.{uid}&select=*&order=created_at.desc", headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}, timeout=6)
+            if r.status_code==200:
+                return r.json()
+        except: pass
+    p = _bookings_path(uid)
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data=json.load(f)
+                if isinstance(data, list): return data
+        except: pass
+    return []
+
+def save_web_bookings(uid, data):
+    p = _bookings_path(uid)
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except: pass
+    if _supabase_enabled():
+        try:
+            # delete old then insert all (simple sync)
+            requests.delete(f"{SUPABASE_URL}/rest/v1/{BOOKINGS_TABLE}?user_id=eq.{uid}", headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}, timeout=6)
+            if data:
+                # need to ensure each has user_id
+                for b in data: b["user_id"]=uid
+                requests.post(f"{SUPABASE_URL}/rest/v1/{BOOKINGS_TABLE}", headers={**_sb_headers()}, json=data, timeout=8)
+        except: pass
+
+@app.route("/api/bookings", methods=["GET"])
+def api_bookings_list():
+    uid = session.get("user_id")
+    if not uid: return jsonify({"ok":False,"error":"not logged"}), 401
+    return jsonify({"ok":True,"bookings": load_web_bookings(uid)})
+
+@app.route("/api/bookings", methods=["POST"])
+def api_bookings_create():
+    uid = session.get("user_id")
+    if not uid: return jsonify({"ok":False,"error":"not logged"}), 401
+    data = request.get_json() or {}
+    bookings = load_web_bookings(uid)
+    b = {"id": f"BK{int(time.time())%100000:05d}", "customer_fb_id": "MANUAL", "customer_name": data.get("customer_name","Manual"), "contact": data.get("contact",""), "date": data.get("date",""), "tour_type": "Day Tour", "pax": data.get("pax","15"), "price": "3500", "downpayment": "1000", "status": "CONFIRMED", "gcash_ref": "MANUAL", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "user_id": uid}
+    # price by tiers
+    try:
+        u = find_user_by_id(uid)
+        biz = u.get("business",{}) if u else {}
+        price, _, _ = get_price_for_pax(biz, b["pax"], b["date"])
+        b["price"] = str(price)
+    except: pass
+    if not b["date"]: return jsonify({"ok":False,"error":"date required"}), 400
+    bookings.append(b)
+    save_web_bookings(uid, bookings)
+    return jsonify({"ok":True,"booking":b})
+
+@app.route("/api/bookings/update", methods=["POST"])
+def api_bookings_update():
+    uid = session.get("user_id")
+    if not uid: return jsonify({"ok":False,"error":"not logged"}), 401
+    data = request.get_json() or {}
+    bid = data.get("id"); status = data.get("status")
+    bookings = load_web_bookings(uid)
+    for b in bookings:
+        if b.get("id")==bid:
+            b["status"]=status
+            b["updated_at"]=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            save_web_bookings(uid, bookings)
+            return jsonify({"ok":True})
+    return jsonify({"ok":False,"error":"not found"}), 404
+
+@app.route("/api/bookings/mark-paid", methods=["POST"])
+def api_bookings_mark_paid():
+    uid = session.get("user_id")
+    if not uid: return jsonify({"ok":False,"error":"not logged"}), 401
+    ref = (request.get_json() or {}).get("ref","")
+    if not ref: return jsonify({"ok":False,"error":"ref required"}), 400
+    bookings = load_web_bookings(uid)
+    for b in reversed(bookings):
+        if b.get("status")=="PENDING_PAYMENT":
+            b["status"]="PAID_AWAITING_CONFIRM"; b["gcash_ref"]=ref; b["paid_at"]=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            save_web_bookings(uid, bookings)
+            return jsonify({"ok":True,"booking":b})
+    # fallback any inquiry/pending
+    for b in reversed(bookings):
+        if b.get("status") in ("INQUIRY","PENDING_PAYMENT"):
+            b["status"]="PAID_AWAITING_CONFIRM"; b["gcash_ref"]=ref
+            save_web_bookings(uid, bookings)
+            return jsonify({"ok":True,"booking":b})
+    return jsonify({"ok":False,"error":"no pending booking"}), 404
+
+@app.route("/api/analytics", methods=["GET"])
+def api_analytics():
+    uid = session.get("user_id")
+    if not uid: return jsonify({"ok":False,"error":"not logged"}), 401
+    bookings = load_web_bookings(uid)
+    total=len(bookings)
+    confirmed=sum(1 for b in bookings if b.get("status")=="CONFIRMED")
+    paid=sum(1 for b in bookings if b.get("status")=="PAID_AWAITING_CONFIRM")
+    pending=sum(1 for b in bookings if b.get("status")=="PENDING_PAYMENT")
+    inquiry=sum(1 for b in bookings if b.get("status")=="INQUIRY")
+    cancelled=sum(1 for b in bookings if b.get("status")=="CANCELLED")
+    try:
+        revenue=sum(int(re.sub(r"\D","", str(b.get("price","0"))) or 0) for b in bookings if b.get("status")=="CONFIRMED")
+    except: revenue=confirmed*3500
+    from collections import Counter
+    dates=Counter(b.get("date","") for b in bookings if b.get("date") and b.get("status") not in ("CANCELLED",))
+    peak_date, peak_count = dates.most_common(1)[0] if dates else ("-",0)
+    total_pax=sum(int(re.search(r"\d+", str(b.get("pax","0"))).group(0)) if re.search(r"\d+", str(b.get("pax","0"))) else 0 for b in bookings)
+    monthly=Counter(b.get("created_at","")[:7] for b in bookings if b.get("created_at"))
+    return jsonify({"ok":True,"total":total,"confirmed":confirmed,"paid":paid,"pending":pending,"inquiry":inquiry,"cancelled":cancelled,"revenue":revenue,"peak_date":peak_date,"peak_count":peak_count,"total_pax":total_pax,"monthly":dict(monthly)})
+
+@app.route("/api/verify-gcash", methods=["POST"])
+def api_verify_gcash_web():
+    uid = session.get("user_id")
+    if not uid: return jsonify({"ok":False,"error":"not logged"}), 401
+    data = request.get_json() or {}
+    b64 = data.get("image_base64","")
+    if not b64: return jsonify({"ok":False,"error":"no image"}), 400
+    import base64
+    try: img_bytes = base64.b64decode(b64)
+    except: return jsonify({"ok":False,"error":"invalid base64"}), 400
+    u = find_user_by_id(uid)
+    biz = u.get("business",{}) if u else {}
+    api_key = os.environ.get("GEMINI_KEY") or os.environ.get("GEMINI_KEY_1") or ""
+    # try user business api key if any
+    if not api_key:
+        for v in [u.get("business",{}).get("ai_api_key","") if u else ""]:
+            if v: api_key=v; break
+    res = verify_gcash_image(img_bytes, biz, api_key) if 'verify_gcash_image' in globals() else None
+    if res and res.get("ref"):
+        return jsonify({"ok":True,"result":res})
+    return jsonify({"ok":False,"error":"No Ref found — try clearer screenshot"}), 200
+
 @app.route("/webhook", methods=["GET"])
 def verify():
     mode = request.args.get("hub.mode")

@@ -29,16 +29,17 @@ textarea{min-height:70px;resize:vertical}
 <div class="dash">
   <aside class="side">
     <h3>MENU</h3>
-    <a href="#" class="active">⚙ Business Info (AI)</a>
-    <a href="#" onclick="alert('Bookings are in the desktop app — web sync coming next update')">📅 Bookings</a>
-    <a href="#" onclick="alert('Analytics is in the desktop app — web sync coming next')">📊 Analytics</a>
-    <a href="#" onclick="alert('GCash verify via Messenger/desktop — web upload coming soon')">🖼 GCash Verify</a>
+    <a href="#" id="nav_biz" class="active" onclick="showTab('biz')">⚙ Business Info (AI)</a>
+    <a href="#" id="nav_book" onclick="showTab('book')">📅 Bookings</a>
+    <a href="#" id="nav_anal" onclick="showTab('anal')">📊 Analytics</a>
+    <a href="#" id="nav_gcash" onclick="showTab('gcash')">🖼 GCash Verify</a>
     <h3 style="margin-top:14px">BILLING</h3>
-    <a href="#" onclick="showBilling()">💳 Plan & Billing</a>
+    <a href="#" onclick="showTab('billing')">💳 Plan & Billing</a>
     <a href="#" onclick="logout()">🚪 Logout</a>
   </aside>
   <main class="main">
     <div id="banner" class="banner trial" style="display:none"></div>
+    <div id="tab_biz">
     <div id="fb_card" class="card2" style="border-color:var(--accent2)">
       <h4>🔵 Facebook Page Connection — One-Click</h4>
       <p class="small muted">Connect your FB Page so ChatPilot replies on your Messenger. No need to copy token.</p>
@@ -97,9 +98,36 @@ textarea{min-height:70px;resize:vertical}
       <button class="btn primary full" onclick="saveBiz()">💾 Save — AI Updated!</button>
       <p class="small muted" style="margin-top:8px">Auto-sync to cloud — no Sync button needed, it’s automatic.</p>
     </div>
-    <div id="billing" class="card2" style="display:none">
+    </div><!-- tab_biz -->
+    <div id="tab_book" style="display:none">
+      <h3>📅 Bookings</h3>
+      <p class="small muted">Bookings from Messenger auto-appear here. Same as desktop app.</p>
+      <div style="display:flex;gap:8px;margin:10px 0">
+        <button class="btn ghost" onclick="loadBookings()">🔄 Refresh</button>
+        <button class="btn primary" onclick="manualBooking()">➕ Manual Add</button>
+      </div>
+      <div id="book_list" style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto"></div>
+    </div>
+    <div id="tab_anal" style="display:none">
+      <h3>📊 Analytics</h3>
+      <div id="anal_stats" class="card2">Loading...</div>
+      <div class="grid2">
+        <div class="card2"><div style="font-size:1.6rem;font-weight:800" id="a_total">0</div><div class="small muted">Total Bookings</div></div>
+        <div class="card2"><div style="font-size:1.6rem;font-weight:800;color:var(--green)" id="a_rev">₱0</div><div class="small muted">Revenue</div></div>
+      </div>
+      <div id="anal_monthly" class="small muted" style="margin-top:8px"></div>
+      <button class="btn ghost" onclick="loadAnalytics()">🔄 Refresh Analytics</button>
+    </div>
+    <div id="tab_gcash" style="display:none">
+      <h3>🖼 GCash Verify</h3>
+      <p class="small muted">Upload GCash screenshot → AI extracts Ref & Amount → auto-mark Paid.</p>
+      <input type="file" id="gcash_file" accept="image/*" style="margin:10px 0">
+      <button class="btn primary" onclick="uploadGcash()">🔍 Verify Screenshot</button>
+      <div id="gcash_res" class="card2" style="display:none;margin-top:10px"></div>
+    </div>
+    <div id="tab_billing" style="display:none">
       <h4>💳 Billing</h4>
-      <p>Plan: <strong id="plan"></strong> • Trial ends: <span id="trial_end"></span></p>
+      <p>Plan: <strong id="plan2"></strong> • Trial ends: <span id="trial_end2"></span></p>
       <p class="small muted">After trial, choose Starter ₱299/mo or Pro ₱699 — GCash/Maya. Contact MQS TECH on Facebook.</p>
       <a class="btn primary" href="#" onclick="alert('GCash checkout coming next update — contact MQS TECH on Facebook for manual activation')">Upgrade Now →</a>
     </div>
@@ -133,6 +161,7 @@ async function loadMe(){
     document.getElementById('fb_status').textContent='⚠️ Not connected — click Connect to link your FB Page (1 click, no token needed).';
   }
   document.getElementById('plan').textContent=j.user.plan; document.getElementById('trial_end').textContent=j.trial_end;
+  try{ document.getElementById('plan2').textContent=j.user.plan; document.getElementById('trial_end2').textContent=j.trial_end; }catch(e){}
   const banner=document.getElementById('banner');
   // format hours -> days + hours if >24
   function fmt(h){ if(h<=24) return h+'h left'; const d=Math.floor(h/24), rh=h%24; return d+'d '+(rh?rh+'h':'')+' left'; }
@@ -144,7 +173,64 @@ async function loadMe(){
     banner.style.display='block'; banner.textContent='✅ Trial active — '+fmt(j.trial_hours_left)+' left (ends '+j.trial_end+'). We’ll ask after expiry if you want to continue.';
   }
 }
-function showBilling(){ document.getElementById('billing').style.display='block'; document.getElementById('billing').scrollIntoView({behavior:'smooth'}); }
+function showBilling(){ showTab('billing'); }
+function showTab(t){
+  document.getElementById('tab_biz').style.display = t==='biz'?'block':'none';
+  document.getElementById('tab_book').style.display = t==='book'?'block':'none';
+  document.getElementById('tab_anal').style.display = t==='anal'?'block':'none';
+  document.getElementById('tab_gcash').style.display = t==='gcash'?'block':'none';
+  document.getElementById('tab_billing').style.display = t==='billing'?'block':'none';
+  document.getElementById('billing').style.display = t==='billing'?'block':'none';
+  document.querySelectorAll('.side a').forEach(a=>a.classList.remove('active'));
+  const map={biz:'nav_biz',book:'nav_book',anal:'nav_anal',gcash:'nav_gcash',billing:''};
+  if(map[t]) document.getElementById(map[t]).classList.add('active');
+  if(t==='book') loadBookings();
+  if(t==='anal') loadAnalytics();
+}
+async function loadBookings(){
+  const r=await fetch('/api/bookings'); const j=await r.json();
+  const el=document.getElementById('book_list'); el.innerHTML='';
+  if(!j.ok||!j.bookings.length){ el.innerHTML='<p class=\"small muted\">No bookings yet — Messenger bookings auto-appear here.</p>'; return; }
+  j.bookings.slice().reverse().forEach(b=>{
+    const d=document.createElement('div'); d.className='card2';
+    d.innerHTML=`<div style=\"display:flex;justify-content:space-between\"><strong>${b.id} • ${b.date||''} • ${b.tour_type||''}</strong><span style=\"font-weight:700;color:${b.status==='CONFIRMED'?'var(--green)':b.status==='PAID_AWAITING_CONFIRM'?'var(--orange)':'var(--text2)'}\">${b.status}</span></div><div class=\"small muted\">👤 ${b.customer_name} | 📞 ${b.contact} | 👥 ${b.pax} pax</div><div class=\"small muted\">💵 P${b.price} | Down P${b.downpayment} | Ref: ${b.gcash_ref||'-'}</div><div style=\"margin-top:6px;display:flex;gap:6px\">${b.status==='PENDING_PAYMENT'?`<button class=\"btn ghost\" style=\"padding:4px 8px;font-size:.8rem\" onclick=\"updateBooking('${b.id}','PAID_AWAITING_CONFIRM')\">Mark Paid</button>`:''}${b.status==='PAID_AWAITING_CONFIRM'?`<button class=\"btn primary\" style=\"padding:4px 8px;font-size:.8rem\" onclick=\"updateBooking('${b.id}','CONFIRMED')\">Confirm</button>`:''}${b.status!=='CANCELLED' && b.status!=='CONFIRMED'?`<button class=\"btn ghost\" style=\"padding:4px 8px;font-size:.8rem;color:var(--red)\" onclick=\"updateBooking('${b.id}','CANCELLED')\">Cancel</button>`:''}</div>`;
+    el.appendChild(d);
+  });
+}
+async function updateBooking(id,status){
+  const r=await fetch('/api/bookings/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status})});
+  const j=await r.json(); if(j.ok) loadBookings(); else alert(j.error);
+}
+async function manualBooking(){
+  const d=prompt('Date (YYYY-MM-DD or Aug 30):'); if(!d) return;
+  const n=prompt('Name:')||'Manual'; const c=prompt('Contact:')||''; const p=prompt('Pax:')||'15';
+  const r=await fetch('/api/bookings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:d,customer_name:n,contact:c,pax:p})});
+  const j=await r.json(); if(j.ok) loadBookings(); else alert(j.error);
+}
+async function loadAnalytics(){
+  const r=await fetch('/api/analytics'); const j=await r.json();
+  if(!j.ok){ document.getElementById('anal_stats').textContent='No data'; return; }
+  document.getElementById('a_total').textContent=j.total; document.getElementById('a_rev').textContent='₱'+j.revenue.toLocaleString();
+  document.getElementById('anal_stats').innerHTML=`Pending: ${j.pending} • Paid: ${j.paid} • Confirmed: ${j.confirmed} • Inquiry: ${j.inquiry} • Cancelled: ${j.cancelled}<br>Peak: ${j.peak_date} (${j.peak_count}) • Total Pax: ${j.total_pax}`;
+  document.getElementById('anal_monthly').textContent='Monthly: '+(Object.entries(j.monthly).slice(-6).map(([k,v])=>k+':'+v).join(', ')||'none');
+}
+async function uploadGcash(){
+  const f=document.getElementById('gcash_file').files[0]; if(!f) return alert('Choose image first');
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    const b64=e.target.result.split(',')[1];
+    const r=await fetch('/api/verify-gcash',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_base64:b64})});
+    const j=await r.json();
+    const el=document.getElementById('gcash_res'); el.style.display='block';
+    if(j.ok && j.result && j.result.ref){ el.innerHTML=`✅ Ref: <strong>${j.result.ref}</strong> Amount: ${j.result.amount||'-'} <br>Confident: ${j.result.confident}<br><button class=\"btn primary\" onclick=\"markGcash('${j.result.ref}')\">Mark latest Pending as Paid</button>`; }
+    else el.textContent='No Ref found — try clearer screenshot. '+(j.error||'');
+  };
+  reader.readAsDataURL(f);
+}
+async function markGcash(ref){
+  const r=await fetch('/api/bookings/mark-paid',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ref})});
+  const j=await r.json(); if(j.ok){ alert('Marked Paid!'); loadBookings(); } else alert(j.error);
+}
 async function saveBiz(){
   // build pricing tiers JSON
   const tiers = [{min:10,max:15,price:parseInt(price_10_15.value)||4500,label:"10-15 pax"},{min:16,max:20,price:parseInt(price_16_20.value)||5000,label:"16-20 pax"}];
