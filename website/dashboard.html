@@ -32,11 +32,17 @@ textarea{min-height:70px;resize:vertical}
   .grid2{grid-template-columns:1fr !important}
   .main{padding:14px}
   input,textarea,select{font-size:16px}
+  .nav-inner{gap:8px;padding:10px 12px}
+  #user_email{max-width:110px !important;font-size:.75rem !important}
+}
+@media(max-width:480px){
+  #user_email{max-width:90px !important}
+  .brand{font-size:.9rem}
 }
 </style>
 </head>
 <body>
-<nav class="nav"><div class="nav-inner"><a class="brand" href="/"><span class="dot">●</span> MQS <strong>ChatPilot</strong> <span class="ver">Dashboard</span></a><div class="nav-cta"><span id="user_email" style="color:var(--text2);font-size:.9rem"></span><a class="btn ghost" href="#" onclick="logout()">Logout</a></div></div></nav>
+<nav class="nav"><div class="nav-inner"><a class="brand" href="/"><span class="dot">●</span> MQS <strong>ChatPilot</strong> <span class="ver">Dashboard</span></a><div class="nav-cta" style="flex-shrink:0;gap:8px"><span id="user_email" style="color:var(--text2);font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;display:inline-block;vertical-align:middle"></span><a class="btn ghost" href="#" onclick="logout()" style="flex-shrink:0">Logout</a></div></div></nav>
 <div class="dash">
   <aside class="side">
     <button id="menu_toggle" class="menu-toggle" onclick="toggleMenu()">☰ Menu <span id="menu_arrow">▼</span></button>
