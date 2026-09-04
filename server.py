@@ -817,8 +817,7 @@ def generate_reply(client, sender_id, text):
     biz = config["business_info"]
     api_key = config.get("ai_api_key", "")
 
-    # === TRIAL/SUBSCRIPTION CHECK (web users only) ===
-    # if this is a web user (web_<uid>), check if trial/subscription expired -> block bot but allow dashboard
+    # === TRIAL/SUBSCRIPTION CHECK (web users only) - SILENT when expired ===
     try:
         if client.get("id","").startswith("web_"):
             uid = client["id"][4:]
@@ -826,12 +825,9 @@ def generate_reply(client, sender_id, text):
             if u:
                 _, _, expired = trial_info(u)
                 if expired:
-                    # allow admin to still manage, but bot stops
-                    msg_exp = f"Hi {sess.get('pending_name') or user_name}! Your trial/subscription has expired (ended {u.get('trial_end','')[:10]}). Please renew to continue auto-replies: https://mqs-chatpilot.onrender.com/dashboard → Upgrade. Contact MQS TECH on Facebook for GCash payment. After you pay, admin will extend your access (+30 days) and bot will resume! 🙏"
-                    sess["history"].append(f"AI: {msg_exp}")
-                    save_sessions()
-                    print(f"[TRIAL BLOCK] {u.get('email')} expired, sent upgrade prompt", flush=True)
-                    return msg_exp
+                    print(f"[TRIAL BLOCK] {u.get('email')} expired — silent, no reply", flush=True)
+                    # silent: don't reply at all, owner will see in dashboard that trial expired
+                    return None
     except: pass
 
     # Check vacation/blocked first - if blocked, reply directly without AI
