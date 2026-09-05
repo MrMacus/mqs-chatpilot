@@ -89,6 +89,15 @@ textarea{min-height:70px;resize:vertical}
       </div>
       <label>Google Maps Link <input id="biz_maps" placeholder="Enter your Google Maps link"></label>
       <label>Extra Info <textarea id="biz_extra" placeholder="Enter extra info (e.g., free parking, near beach)"></textarea></label>
+      <div class="card2" style="border-color:var(--accent2)">
+        <h4>🤖 AI Mode — Detailed vs Instant</h4>
+        <p class="small muted">Groq Instant = mas mabilis, direct. Gemini Detailed = mas sweet, mas detailed. Iba style kaya may switch.</p>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="btn_groq" class="btn primary" onclick="setAiMode('groq')" style="flex:1">⚡ Instant (Groq)</button>
+          <button id="btn_gemini" class="btn ghost" onclick="setAiMode('gemini')" style="flex:1">🧠 Detailed (Gemini)</button>
+        </div>
+        <p id="ai_mode_status" class="small muted" style="margin-top:6px">Current: Instant (Groq) — mabilis</p>
+      </div>
       <div class="card2">
         <h4>💰 Pricing Tiers & Seasonal Promo</h4>
         <p class="small muted">Example: 4500 for 10-15 pax, 5000 for 16-20 pax. Rainy cheaper, Summer higher — AI auto-quotes.</p>
@@ -161,6 +170,9 @@ async function loadMe(){
   const b=j.business;
   document.getElementById('biz_name').value=b.name||''; document.getElementById('biz_loc').value=b.location||''; document.getElementById('biz_price').value=b.price_day||''; document.getElementById('biz_cap').value=b.capacity||''; document.getElementById('biz_inc').value=b.inclusions||''; document.getElementById('biz_gcash').value=b.gcash_number||''; document.getElementById('biz_gcash_name').value=b.gcash_name||''; document.getElementById('biz_contact').value=b.contact||''; document.getElementById('biz_down').value=b.downpayment||''; document.getElementById('biz_maps').value=b.google_maps_link||''; document.getElementById('biz_extra').value=b.extra_info||'';
   document.getElementById('vac_on').checked=j.vacation.enabled; document.getElementById('vac_until').value=j.vacation.until||''; document.getElementById('vac_reason').value=j.vacation.reason||'';
+  // ai mode
+  const aiMode = j.business.ai_mode || 'groq';
+  updateAiButtons(aiMode);
   // pricing tiers
   try{
     const tiers = JSON.parse(j.business.pricing_tiers||'[]');
@@ -261,11 +273,19 @@ async function markGcash(ref){
   const r=await fetch('/api/bookings/mark-paid',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ref})});
   const j=await r.json(); if(j.ok){ alert('Marked Paid!'); loadBookings(); } else alert(j.error);
 }
+let currentAiMode='groq';
+function updateAiButtons(mode){
+  currentAiMode=mode;
+  document.getElementById('btn_groq').className = mode==='groq' ? 'btn primary' : 'btn ghost';
+  document.getElementById('btn_gemini').className = mode==='gemini' ? 'btn primary' : 'btn ghost';
+  document.getElementById('ai_mode_status').textContent = mode==='groq' ? 'Current: Instant (Groq) — mabilis, direct' : 'Current: Detailed (Gemini) — mas sweet, mas detailed';
+}
+function setAiMode(m){ updateAiButtons(m); }
 async function saveBiz(){
   // build pricing tiers JSON
   const tiers = [{min:10,max:15,price:parseInt(price_10_15.value)||4500,label:"10-15 pax"},{min:16,max:20,price:parseInt(price_16_20.value)||5000,label:"16-20 pax"}];
   const seasonal = {rainy:{months:[6,7,8,9,10],label:"Rainy Season Promo",tiers:[{min:10,max:15,price:parseInt(rainy_10_15.value)||4000},{min:16,max:20,price:parseInt(rainy_16_20.value)||4500}]},summer:{months:[3,4,5],label:"Summer Peak",tiers:[{min:10,max:15,price:parseInt(summer_10_15.value)||5000},{min:16,max:20,price:parseInt(summer_16_20.value)||6000}]}};
-  const body={name:biz_name.value, location:biz_loc.value, price_day:biz_price.value, capacity:biz_cap.value, inclusions:biz_inc.value, gcash_number:biz_gcash.value, gcash_name:biz_gcash_name.value, contact:biz_contact.value, downpayment:biz_down.value, google_maps_link:biz_maps.value, extra_info:biz_extra.value, pricing_tiers:JSON.stringify(tiers), seasonal_enabled:seasonal_on.checked?'true':'false', seasonal_pricing:JSON.stringify(seasonal), vacation:{enabled:vac_on.checked, until:vac_until.value, reason:vac_reason.value}};
+  const body={name:biz_name.value, location:biz_loc.value, price_day:biz_price.value, capacity:biz_cap.value, inclusions:biz_inc.value, gcash_number:biz_gcash.value, gcash_name:biz_gcash_name.value, contact:biz_contact.value, downpayment:biz_down.value, google_maps_link:biz_maps.value, extra_info:biz_extra.value, pricing_tiers:JSON.stringify(tiers), seasonal_enabled:seasonal_on.checked?'true':'false', seasonal_pricing:JSON.stringify(seasonal), ai_mode: currentAiMode, vacation:{enabled:vac_on.checked, until:vac_until.value, reason:vac_reason.value}};
   const r=await fetch('/api/save-business',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json();
   if(j.ok) alert('Saved! AI updated — try it on Messenger.'); else alert(j.error||'Save failed');

@@ -636,8 +636,9 @@ def download_fb_image(url, token):
     return None
 
 def call_ai(api_key, biz, history, text, user_name):
-    # Groq primary (10 keys) — try first regardless of Gemini key
-    if GROQ_AVAILABLE:
+    ai_mode = str(biz.get("ai_mode","groq")).lower()
+    # Groq Instant vs Gemini Detailed
+    if ai_mode in ("groq","instant") and GROQ_AVAILABLE:
         try:
             gkeys = load_groq_keys()
             if gkeys:
@@ -1490,7 +1491,7 @@ def api_save_business():
     for u in users:
         if u["id"]==uid:
             # only update business + vacation (not email)
-            for k in ["name","location","price_day","capacity","inclusions","gcash_number","gcash_name","contact","downpayment","google_maps_link","extra_info","pricing_tiers","seasonal_enabled","seasonal_pricing","promo_enabled","promo_name","promo_discount","promo_until"]:
+            for k in ["name","location","price_day","capacity","inclusions","gcash_number","gcash_name","contact","downpayment","google_maps_link","extra_info","pricing_tiers","seasonal_enabled","seasonal_pricing","promo_enabled","promo_name","promo_discount","promo_until","ai_mode"]:
                 if k in data: u["business"][k] = data[k]
             if "vacation" in data:
                 u["vacation"] = data["vacation"]
