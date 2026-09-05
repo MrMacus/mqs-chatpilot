@@ -23,9 +23,10 @@ def load_groq_keys() -> List[str]:
                     keys.append(k)
     return keys[:10]
 
-GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama3-70b-8192", "llama-3.1-8b-instant"]
+# Free-tier groq models (Enterprise llama-3.3-70b needs paid, so use OSS)
+GROQ_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.6-27b", "llama-3.1-8b-instant"]
 GROQ_MODEL = GROQ_MODELS[0]
-GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_MODEL = "gemini-2.0-flash"
 
 def call_groq_with_fallback(
     messages: List[Dict],
