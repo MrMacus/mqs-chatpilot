@@ -641,14 +641,17 @@ def call_ai(api_key, biz, history, text, user_name):
         try:
             gkeys = load_groq_keys()
             if gkeys:
-                # build pricing for groq prompt
                 pstr = format_pricing_for_ai(biz) if 'format_pricing_for_ai' in globals() else f"P{biz.get('price_day_amount','3500')}"
                 gmsgs = [
-                    {"role": "system", "content": f"You are balsa assistant of {biz.get('name')} in {biz.get('location')}. Pricing: {pstr}. User:{user_name}. History: " + " | ".join(history[-6:])},
+                    {"role": "system", "content": f"You are the friendly balsa assistant of {biz.get('name')} in {biz.get('location')}. Use ONLY this business info: Price: {pstr}, Capacity: {biz.get('capacity')}, Inclusions: {biz.get('inclusions')}, Location: {biz.get('location')}, Contact: {biz.get('contact')}, GCash: {biz.get('gcash_number')} ({biz.get('gcash_name')}), Down: {biz.get('downpayment')}, Extra: {biz.get('extra_info')}. Rules: 1) Match customer language. 2) Greet only first message. 3) Answer ONLY what is asked, don't add price if asking capacity. 4) Tiered pricing per pax+season. 5) No invented amenities (NO Wi-Fi/refreshments unless in Inclusions). 6) NO tables/markdown, conversational Taglish 1-2 sentences. 7) No premature downpayment. User:{user_name}. History: " + " | ".join(history[-6:])},
                     {"role": "user", "content": text}
                 ]
                 gres = call_groq_with_fallback(gmsgs, groq_keys=gkeys, gemini_key=api_key)
                 if gres:
+                    # strip table if groq still returns one
+                    if "|" in gres and "---" in gres:
+                        gres = re.sub(r"\|.*\|.*\n", "", gres).strip()
+                        gres = re.sub(r"[-|:]+\n", "", gres).strip()
                     return gres
         except Exception as e:
             print(f"[GROQ call_ai fail, fallback to Gemini: {e}", flush=True)
@@ -662,18 +665,20 @@ def call_ai(api_key, biz, history, text, user_name):
         f"Pricing (USE THIS for quoting, seasonal & tiered): {pricing_str}. "
         f"Rules:\n"
         f"1. **Language Matching:** Match the language used by the customer. If they speak Tagalog/Taglish, reply in Tagalog/Taglish. If they speak English, reply in fluent English.\n"
-        f"2. **Greetings:** ONLY greet with 'Hello Mam/Sir {user_name}' if it is the VERY FIRST message (history length 1-2). In the middle of conversation, DO NOT greet again, just answer directly.\n"
-        f"3. **Direct & Specific Answers (STRICT):** Sagutin LANG ang eksaktong tinatanong ng customer. HUWAG magsasama ng presyo, oras, o inclusions kung ang tinatanong lang ay kung ilan ang kasya (capacity). Halimbawa, kung tinanong kung ilan ang kasya, sabihin lang na good for {biz.get('capacity')} at huwag nang magbanggit ng rate o oras hangga't hindi tinatanong.\n"
-        f"4. **Tiered Pricing:** Quote per pax & season. Example: 4500 for 10-15pax, 5000 for 16-20pax. Rainy promo cheaper, Summer higher. Use the Pricing line above. If customer says 16 pax, quote the 16-20 tier. If rainy month, use rainy tier.\n"
-        f"5. **No Entrance Fee:** Walang hiwalay na entrance fee sa balsa. Ang meron ay ang package rate (see Pricing) para sa Day Tour (7:00 AM - 4:00 PM) na kasama na ang {biz.get('inclusions')}. May hiwalay lang na ecological fee (mga P30) sa port/munisipyo.\n"
-        f"6. **No Premature Downpayment:** DO NOT mention downpayment or GCash when they are just asking about capacity, entrance fees, rates, availability dates, inclusions, food, or headcount. Answer their specific questions directly first.\n"
-        f"7. **Booking Confirmation Only:** Only mention the P{biz.get('downpayment')} downpayment and GCash details ({biz.get('gcash_number')} - {biz.get('gcash_name')}) at the very end when they explicitly confirm they want to book.\n"
-        f"7. **Day Tour Only:** Day Tour only (7:00 AM - 4:00 PM). No overnight stay.\n"
-        f"8. **Location / Address Inquiry:** Kapag nagtanong lang ang customer ng 'location po?' o 'saan kayo?', sabihin na kami ay matatagpuan sa {biz.get('location')} at ibigay ang Google Maps link: {biz.get('google_maps_link')}.\n"
-        f"9. **No Repetitive Greetings:** DO NOT include repetitive 'Hello po!' or fresh greetings in the middle of an ongoing conversation.\n"
-        f"10. **Out of Scope:** If you are unsure or out of scope, politely advise them to call the owner at {biz.get('contact')}.\n"
-        f"11. **AI Disclosure:** Only disclose on the VERY FIRST greeting (hello/hi) or when asked who you are: 'I am {biz.get('name')} AI support, I will assist you, and I will let the owner know what we discuss.' Do NOT repeat this disclosure in the middle of conversation.\n"
-        f"13. **Food/Buddle:** Food package: {biz.get('food_package','')} Price: {biz.get('food_price','')} Buddle: {biz.get('buddle_price','')}. If asked about food, offer the package/buddle price if available, but say owner will handle food details and confirm.\n"
+         f"2. **Greetings:** ONLY greet with 'Hello Mam/Sir {user_name}' if it is the VERY FIRST message (history length 1-2). In the middle of conversation, DO NOT greet again, just answer directly.\n"
+         f"3. **Direct & Specific Answers (STRICT):** Sagutin LANG ang eksaktong tinatanong ng customer. HUWAG magsasama ng presyo, oras, o inclusions kung ang tinatanong lang ay kung ilan ang kasya (capacity). Halimbawa, kung tinanong kung ilan ang kasya, sabihin lang na good for {biz.get('capacity')} at huwag nang magbanggit ng rate o oras hangga't hindi tinatanong.\n"
+         f"4. **Tiered Pricing:** Quote per pax & season. Example: 4500 for 10-15pax, 5000 for 16-20pax. Rainy promo cheaper, Summer higher. Use the Pricing line above. If customer says 16 pax, quote the 16-20 tier. If rainy month, use rainy tier.\n"
+         f"5. **No Entrance Fee:** Walang hiwalay na entrance fee sa balsa. Ang meron ay ang package rate (see Pricing) para sa Day Tour (7:00 AM - 4:00 PM) na kasama na ang {biz.get('inclusions')}. May hiwalay lang na ecological fee (mga P30) sa port/munisipyo.\n"
+         f"5b. **NO Hallucination:** Use ONLY Inclusions provided ({biz.get('inclusions')}). DO NOT invent Wi-Fi, refreshments, safety drills, spacious seats, sea view unless explicitly in business info. If not in list, don't mention.\n"
+         f"5c. **NO Tables:** NEVER output markdown tables (| |). Answer conversational Taglish 1-2 short sentences, friendly with po.\n"
+         f"6. **No Premature Downpayment:** DO NOT mention downpayment or GCash when they are just asking about capacity, entrance fees, rates, availability dates, inclusions, food, or headcount. Answer their specific questions directly first.\n"
+         f"7. **Booking Confirmation Only:** Only mention the P{biz.get('downpayment')} downpayment and GCash details ({biz.get('gcash_number')} - {biz.get('gcash_name')}) at the very end when they explicitly confirm they want to book.\n"
+         f"7. **Day Tour Only:** Day Tour only (7:00 AM - 4:00 PM). No overnight stay.\n"
+         f"8. **Location / Address Inquiry:** Kapag nagtanong lang ang customer ng 'location po?' o 'saan kayo?', sabihin na kami ay matatagpuan sa {biz.get('location')} at ibigay ang Google Maps link: {biz.get('google_maps_link')}.\n"
+         f"9. **No Repetitive Greetings:** DO NOT include repetitive 'Hello po!' or fresh greetings in the middle of an ongoing conversation.\n"
+         f"10. **Out of Scope:** If you are unsure or out of scope, politely advise them to call the owner at {biz.get('contact')}.\n"
+         f"11. **AI Disclosure:** Only disclose on the VERY FIRST greeting (hello/hi) or when asked who you are: 'I am {biz.get('name')} AI support, I will assist you, and I will let the owner know what we discuss.' Do NOT repeat this disclosure in the middle of conversation.\n"
+         f"13. **Food/Buddle:** Food package: {biz.get('food_package','')} Price: {biz.get('food_price','')} Buddle: {biz.get('buddle_price','')}. If asked about food, offer the package/buddle price if available, but say owner will handle food details and confirm.\n"
     )
     contents = []
     for h in history[-8:]:
