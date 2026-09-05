@@ -6,6 +6,13 @@ import os, json, re, time, random, hashlib
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, session, redirect, send_from_directory
 import requests
+try:
+    from groq_helper import call_groq_with_fallback, summarize_conversation, load_groq_keys
+    GROQ_AVAILABLE = True
+except:
+    GROQ_AVAILABLE = False
+    def call_groq_with_fallback(*a, **k): return None
+    def summarize_conversation(*a, **k): return {"summary":"","sentiment":"Inquiries lang","action":"","raw":""}
 
 def resource_path(p): return os.path.join(os.path.dirname(__file__), p)
 
@@ -629,6 +636,22 @@ def download_fb_image(url, token):
     return None
 
 def call_ai(api_key, biz, history, text, user_name):
+    # Groq primary (10 keys) — try first regardless of Gemini key
+    if GROQ_AVAILABLE:
+        try:
+            gkeys = load_groq_keys()
+            if gkeys:
+                # build pricing for groq prompt
+                pstr = format_pricing_for_ai(biz) if 'format_pricing_for_ai' in globals() else f"P{biz.get('price_day_amount','3500')}"
+                gmsgs = [
+                    {"role": "system", "content": f"You are balsa assistant of {biz.get('name')} in {biz.get('location')}. Pricing: {pstr}. User:{user_name}. History: " + " | ".join(history[-6:])},
+                    {"role": "user", "content": text}
+                ]
+                gres = call_groq_with_fallback(gmsgs, groq_keys=gkeys, gemini_key=api_key)
+                if gres:
+                    return gres
+        except Exception as e:
+            print(f"[GROQ call_ai fail, fallback to Gemini: {e}", flush=True)
     if not api_key: return None
     keys = [k.strip() for k in api_key.split(",") if k.strip()]
     if not keys: return None
@@ -1733,7 +1756,6 @@ def api_verify_gcash_web():
     u = find_user_by_id(uid)
     biz = u.get("business",{}) if u else {}
     api_key = os.environ.get("GEMINI_KEY") or os.environ.get("GEMINI_KEY_1") or ""
-    # try user business api key if any
     if not api_key:
         for v in [u.get("business",{}).get("ai_api_key","") if u else ""]:
             if v: api_key=v; break
@@ -1741,6 +1763,19 @@ def api_verify_gcash_web():
     if res and res.get("ref"):
         return jsonify({"ok":True,"result":res})
     return jsonify({"ok":False,"error":"No Ref found — try clearer screenshot"}), 200
+
+@app.route("/api/summarize", methods=["POST"])
+def api_summarize():
+    """Conversation Summary & Sentiment Tagging (balsa-focused) — uses Groq llama-3.3-70b-versatile"""
+    data = request.get_json() or {}
+    history = data.get("history", [])  # expect ["Customer: ...", "AI: ..."]
+    if not history or not isinstance(history, list):
+        return jsonify({"ok":False,"error":"history (list) required"}), 400
+    try:
+        res = summarize_conversation(history)
+        return jsonify({"ok":True, **res})
+    except Exception as e:
+        return jsonify({"ok":False,"error":str(e)}), 500
 
 @app.route("/webhook", methods=["GET"])
 def verify():
