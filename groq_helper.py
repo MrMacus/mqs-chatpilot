@@ -23,7 +23,8 @@ def load_groq_keys() -> List[str]:
                     keys.append(k)
     return keys[:10]
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama3-70b-8192", "llama-3.1-8b-instant"]
+GROQ_MODEL = GROQ_MODELS[0]
 GEMINI_MODEL = "gemini-3.6-flash"
 
 def call_groq_with_fallback(
@@ -37,35 +38,44 @@ def call_groq_with_fallback(
         groq_keys = load_groq_keys()
     last_error = None
     for idx, key in enumerate(groq_keys):
-        try:
-            from groq import Groq
-            client = Groq(api_key=key)
-            if idx > 0 and "429" in str(last_error or ""):
-                print(f"[GROQ] Quota hit, instant switch key {idx+1}/{len(groq_keys)}", flush=True)
-            elif idx > 0 and "503" in str(last_error or ""):
-                time.sleep(0.4)
-            resp = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens
-            )
-            text = resp.choices[0].message.content.strip()
-            if text:
-                print(f"[GROQ] key {idx+1} success ({GROQ_MODEL})", flush=True)
-                return text
-        except Exception as e:
-            msg = str(e)
-            last_error = msg
-            if "429" in msg or "RateLimit" in msg or "RESOURCE_EXHAUSTED" in msg or "rate_limit" in msg.lower():
-                print(f"[GROQ] key {idx+1} 429 RateLimit -> next: {msg[:120]}", flush=True)
-                continue
-            elif "503" in msg or "ServiceUnavailable" in msg:
-                print(f"[GROQ] key {idx+1} 503 -> next", flush=True)
-                continue
-            else:
-                print(f"[GROQ] key {idx+1} error: {msg[:150]}", flush=True)
-                continue
+        # try each model for this key before switching key (404 model not found → try next model)
+        for mdl in GROQ_MODELS:
+            try:
+                from groq import Groq
+                client = Groq(api_key=key)
+                if idx > 0 and "429" in str(last_error or ""):
+                    print(f"[GROQ] Quota hit, instant switch key {idx+1}/{len(groq_keys)}", flush=True)
+                elif idx > 0 and "503" in str(last_error or ""):
+                    time.sleep(0.4)
+                resp = client.chat.completions.create(
+                    model=mdl,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+                text = resp.choices[0].message.content.strip()
+                if text:
+                    print(f"[GROQ] key {idx+1} model {mdl} success", flush=True)
+                    return text
+            except Exception as e:
+                msg = str(e)
+                last_error = msg
+                if "404" in msg and "does not exist" in msg:
+                    print(f"[GROQ] key {idx+1} model {mdl} 404 → try next model", flush=True)
+                    continue  # try next model same key
+                if "429" in msg or "RateLimit" in msg or "RESOURCE_EXHAUSTED" in msg or "rate_limit" in msg.lower():
+                    print(f"[GROQ] key {idx+1} 429 RateLimit → next key: {msg[:120]}", flush=True)
+                    break  # break model loop, switch key
+                elif "503" in msg or "ServiceUnavailable" in msg:
+                    print(f"[GROQ] key {idx+1} 503 → next key", flush=True)
+                    break
+                else:
+                    print(f"[GROQ] key {idx+1} model {mdl} error: {msg[:150]}", flush=True)
+                    if mdl != GROQ_MODELS[-1]:
+                        continue
+                    break
+        # if all models failed for this key, continue to next key
+        continue
     if gemini_key is None:
         gemini_key = os.environ.get("GEMINI_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
         if "," in gemini_key:
