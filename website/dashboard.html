@@ -90,13 +90,13 @@ textarea{min-height:70px;resize:vertical}
       <label>Google Maps Link <input id="biz_maps" placeholder="Enter your Google Maps link"></label>
       <label>Extra Info <textarea id="biz_extra" placeholder="Enter extra info (e.g., free parking, near beach)"></textarea></label>
       <div class="card2" style="border-color:var(--accent2)">
-        <h4>🤖 AI Mode — Detailed vs Instant</h4>
-        <p class="small muted">Groq Instant = mas mabilis, direct. Gemini Detailed = mas sweet, mas detailed. Iba style kaya may switch.</p>
+        <h4>🤖 AI Mode</h4>
+        <p class="small muted">Choose how your AI replies — Instant is faster & direct, Detailed is sweeter & more thorough.</p>
         <div style="display:flex;gap:8px;margin-top:8px">
-          <button id="btn_groq" class="btn primary" onclick="setAiMode('groq')" style="flex:1">⚡ Instant (Groq)</button>
-          <button id="btn_gemini" class="btn ghost" onclick="setAiMode('gemini')" style="flex:1">🧠 Detailed (Gemini)</button>
+          <button id="btn_groq" class="btn primary" onclick="setAiMode('groq')" style="flex:1">⚡ Instant</button>
+          <button id="btn_gemini" class="btn ghost" onclick="setAiMode('gemini')" style="flex:1">🧠 Detailed</button>
         </div>
-        <p id="ai_mode_status" class="small muted" style="margin-top:6px">Current: Instant (Groq) — mabilis</p>
+        <p id="ai_mode_status" class="small muted" style="margin-top:6px">Current: Instant — fast response</p>
       </div>
       <div class="card2">
         <h4>💰 Pricing Tiers & Seasonal Promo</h4>
@@ -278,7 +278,7 @@ function updateAiButtons(mode){
   currentAiMode=mode;
   document.getElementById('btn_groq').className = mode==='groq' ? 'btn primary' : 'btn ghost';
   document.getElementById('btn_gemini').className = mode==='gemini' ? 'btn primary' : 'btn ghost';
-  document.getElementById('ai_mode_status').textContent = mode==='groq' ? 'Current: Instant (Groq) — mabilis, direct' : 'Current: Detailed (Gemini) — mas sweet, mas detailed';
+  document.getElementById('ai_mode_status').textContent = mode==='groq' ? 'Current: Instant — fast & direct' : 'Current: Detailed — sweeter & more thorough';
 }
 function setAiMode(m){ updateAiButtons(m); }
 async function saveBiz(){
