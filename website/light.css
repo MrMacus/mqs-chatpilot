@@ -22,4 +22,7 @@ body.landing-light .feat{background:#fff;border-color:#e2e8f0}
 body.landing-light .feat p{color:#718096}
 body.landing-light .price{background:#fff;border-color:#e2e8f0}
 body.landing-light .demo-form,.landing-light .demo-preview{background:#fff;border-color:#e2e8f0}
+body.landing-light .faq details{background:#fff;border-color:#e2e8f0}
+body.landing-light .faq summary{color:#1a202c}
+body.landing-light .faq p{color:#4a5568}
 body.landing-light .footer{background:#f7fafc;border-color:#e2e8f0;color:#718096}
