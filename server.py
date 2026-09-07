@@ -101,6 +101,7 @@ def get_client_by_page_id(pid):
 
 sessions = {}
 seen_message_ids = {}
+seen_comment_ids = {}
 
 def load_sessions():
     global sessions
@@ -522,6 +523,21 @@ def send_fb_message(client, recipient_id, text, tag=None):
         return r.status_code == 200
     except Exception as e:
         print(f"[FB SEND] error {e}", flush=True)
+        return False
+
+def send_private_reply(client, comment_id, text):
+    token = client["config"].get("page_access_token","")
+    if not token or not comment_id: return False
+    url = f"https://graph.facebook.com/v19.0/{comment_id}/private_replies?access_token={token}"
+    try:
+        r = requests.post(url, json={"message": text}, timeout=10)
+        if r.status_code != 200:
+            print(f"[COMMENT PM] fail {r.status_code}: {r.text[:150]}", flush=True)
+            return False
+        print(f"[COMMENT PM] sent to {comment_id}", flush=True)
+        return True
+    except Exception as e:
+        print(f"[COMMENT PM] error {e}", flush=True)
         return False
 
 # === GCASH SCREENSHOT AUTO-VERIFY (AI Vision) ===
@@ -1388,6 +1404,15 @@ def fb_select():
     page = next((p for p in pages if p.get("id")==pid), {"id": pid, "access_token": token, "name": "Unknown"})
     return _fb_save_page(uid, page)
 
+def _subscribe_feed(page_id, page_token):
+    try:
+        # subscribe page to feed webhook (comments) + messages
+        for field in ["messages", "feed"]:
+            r = requests.post(f"https://graph.facebook.com/v19.0/{page_id}/subscribed_apps", params={"subscribed_fields": field, "access_token": page_token}, timeout=8)
+            print(f"[FEED SUB] {page_id} {field} {r.status_code}", flush=True)
+    except Exception as e:
+        print(f"[FEED SUB] error {e}", flush=True)
+
 def _fb_save_page(uid, page):
     users = load_users()
     for u in users:
@@ -1412,9 +1437,10 @@ def _fb_save_page(uid, page):
                     with open(CLIENTS_PATH, "w", encoding="utf-8") as f:
                         json.dump(clients, f, indent=4, ensure_ascii=False)
                 except: pass
+                _subscribe_feed(page.get("id"), page.get("access_token"))
             except: pass
             print(f"[FB CONNECT] {u['email']} -> Page {page.get('name')} ({page.get('id')})", flush=True)
-            return f"<html><head><meta http-equiv='refresh' content='2;url=/dashboard'></head><body style='background:#0f141b;color:#e6edf3;padding:40px;text-align:center'><h2>✅ Connected! {page.get('name')} is now linked to ChatPilot</h2><p>AI will now reply on your Page. Redirecting to dashboard...</p><a href='/dashboard' style='color:#4a6fa5'>Go to Dashboard</a></body></html>"
+            return f"<html><head><meta http-equiv='refresh' content='2;url=/dashboard'></head><body style='background:#0f141b;color:#e6edf3;padding:40px;text-align:center'><h2>✅ Connected! {page.get('name')} is now linked to ChatPilot</h2><p>AI will now reply on your Page + Comments. Redirecting to dashboard...</p><a href='/dashboard' style='color:#4a6fa5'>Go to Dashboard</a></body></html>"
     return "User not found", 404
 
 # === AUTH API (login/register/dashboard/admin) ===
@@ -1801,6 +1827,44 @@ def webhook():
             page_id = entry.get("id", "")
             client = get_client_by_page_id(page_id) or (clients[0] if clients else None)
             if not client: continue
+            # --- Feed webhook: comment -> auto private message ---
+            for change in entry.get("changes", []):
+                try:
+                    if change.get("field") != "feed": continue
+                    val = change.get("value", {})
+                    if val.get("item") != "comment" or val.get("verb") != "add": continue
+                    comment_id = val.get("comment_id") or val.get("commentId")
+                    message = val.get("message", "") or ""
+                    sender = val.get("from", {})
+                    sender_id = str(sender.get("id","")) if sender else ""
+                    # skip if page itself commented or no message
+                    if not comment_id or not message: continue
+                    if sender_id == page_id: continue
+                    if comment_id in seen_comment_ids: continue
+                    seen_comment_ids[comment_id] = time.time()
+                    # only auto-PM if comment contains balsa keywords (avoid spam)
+                    low = message.lower()
+                    if not any(k in low for k in ["magkano","price","how much","available","avail","pax","balsa","floating","cottage","rate","hm","presyo","book"]):
+                        continue
+                    # check trial block for web clients
+                    try:
+                        if client.get("id","").startswith("web_"):
+                            uid = client["id"][4:]
+                            u = find_user_by_id(uid)
+                            if u:
+                                _, _, exp = trial_info(u)
+                                if exp:
+                                    print(f"[COMMENT] blocked - trial expired for {u.get('email')}", flush=True)
+                                    continue
+                    except: pass
+                    # generate reply via same AI (use sender_id as session)
+                    reply = generate_reply(client, f"comment_{sender_id or comment_id}", message)
+                    if reply:
+                        # also add small prefix to show it came from comment
+                        send_private_reply(client, comment_id, reply)
+                        print(f"[COMMENT] {comment_id} '{message[:40]}' -> PM sent", flush=True)
+                except Exception as e:
+                    print(f"[COMMENT] handler error {e}", flush=True)
             for ev in entry.get("messaging", []):
                 sender = ev.get("sender", {}).get("id")
                 msg = ev.get("message", {})
