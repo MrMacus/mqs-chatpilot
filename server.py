@@ -653,22 +653,25 @@ def download_fb_image(url, token):
 
 def call_ai(api_key, biz, history, text, user_name):
     ai_mode = str(biz.get("ai_mode","groq")).lower()
-    # Groq Instant vs Gemini Detailed
+    # Groq Instant vs Gemini Detailed - Groq now as smart as Gemini
     if ai_mode in ("groq","instant") and GROQ_AVAILABLE:
         try:
             gkeys = load_groq_keys()
             if gkeys:
                 pstr = format_pricing_for_ai(biz) if 'format_pricing_for_ai' in globals() else f"P{biz.get('price_day_amount','3500')}"
+                # make Groq as warm & smart as Gemini: few-shot examples + strict rules but sweet
                 gmsgs = [
-                    {"role": "system", "content": f"You are the warm, sweet balsa assistant of {biz.get('name')} in {biz.get('location')}. Business: Price: {pstr}, Capacity: {biz.get('capacity')}, Inclusions: {biz.get('inclusions')}, Location: {biz.get('location')}, Contact: {biz.get('contact')} (owner phone), GCash number: {biz.get('gcash_number')} (for down payment only). Tone: sweet Taglish may po/opo 😊🙏. CRITICAL: 1) Match language. 2) Greet only first. 3) For 'Magkano 16 pax?' => 'Para po sa 16-20 pax, P5,000 po 😊 Kasama na cottage...' NO down. 4) DOWN/GCash ONLY when customer says YES/confirm OR asks 'may down?/paano magbayad?'. Otherwise NEVER mention GCash number. Say 'GCash number' not 'GCash ID'. 5) When customer asks to talk to owner, give ONLY Contact {biz.get('contact')} — DO NOT mention GCash at all. 6) Tiered pricing sweet. 7) No invented amenities. 8) NO tables. User:{user_name}. History: " + " | ".join(history[-6:])},
+                    {"role": "system", "content": f"You are the warm, sweet, super helpful balsa assistant of {biz.get('name')} in {biz.get('location')}. Use ONLY: Price:{pstr}, Capacity:{biz.get('capacity')}, Inclusions:{biz.get('inclusions')}, Location:{biz.get('location')}, Contact:{biz.get('contact')}, GCash:{biz.get('gcash_number')}, Down:{biz.get('downpayment')}, Extra:{biz.get('extra_info')}. Tone: super sweet Taglish with po/opo, 😊🙏, warm, never blunt, always offer options. CRITICAL: 1) Match language. 2) Greet only first msg. 3) For 'Magkano 16 pax?' => 'Para po sa 16-20 pax, P5,000 po ang rate natin 😊 Kasama na po cottage, videoke, ihawan... Bale good for {biz.get('capacity')} po tayo — ilan po kayo final at anong date po para ma-check ko availability? 🙏' NO down. 4) If pax exceeds max (e.g., 25 pax > 20 max), be sweet and offer: 'Paalala lang po, max {biz.get('capacity')}. Pag 25 pax, need po ng 2 balsa — gusto nyo po ba 2 balsa sa date na yan? 😊' 5) DOWN/GCash ONLY when YES/confirm OR asks 'may down?/paano magbayad?'. Never mention otherwise, say 'GCash number' not ID. 6) When asked to talk to owner, ONLY Contact — no GCash. 7) Always end with a helpful question or option, not dead end. 8) No invented amenities, no tables, 1-3 sweet sentences. User:{user_name}. History: " + " | ".join(history[-6:])},
                     {"role": "user", "content": text}
                 ]
                 gres = call_groq_with_fallback(gmsgs, groq_keys=gkeys, gemini_key=api_key)
                 if gres:
-                    # strip table if groq still returns one
                     if "|" in gres and "---" in gres:
                         gres = re.sub(r"\|.*\|.*\n", "", gres).strip()
                         gres = re.sub(r"[-|:]+\n", "", gres).strip()
+                    # ensure sweet: if blunt (no po/😊), add po
+                    if len(gres) < 80 and "po" not in gres.lower():
+                        gres = gres.rstrip(".") + " po 😊"
                     return gres
         except Exception as e:
             print(f"[GROQ call_ai fail, fallback to Gemini: {e}", flush=True)
