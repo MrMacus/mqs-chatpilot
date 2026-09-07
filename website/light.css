@@ -1,0 +1,25 @@
+/* Light clean like Botcake - for landing only */
+body.landing-light{background:#ffffff;color:#1a202c}
+body.landing-light .nav{background:rgba(255,255,255,.9);border-bottom:1px solid #e8eaed;backdrop-filter:blur(10px)}
+body.landing-light .nav .brand{color:#1a202c}
+body.landing-light .nav-links a{color:#5a6b7a}
+body.landing-light .nav-links a:hover{color:#1a202c}
+body.landing-light .hero{background:#ffffff}
+body.landing-light .hero h1{color:#0f141b}
+body.landing-light .hero h1 .accent{color:#2b6cb0}
+body.landing-light .sub{color:#4a5568}
+body.landing-light .badge{background:#ebf8ff;border-color:#bee3f8;color:#2b6cb0}
+body.landing-light .trust{color:#718096}
+body.landing-light .phone{background:#fff;border-color:#e2e8f0;box-shadow:0 20px 40px rgba(0,0,0,.08)}
+body.landing-light .phone-top{background:#f7fafc;border-color:#e2e8f0;color:#2d3748}
+body.landing-light .chat{background:#fff}
+body.landing-light .msg.bot{background:#edf2f7;border-color:#e2e8f0;color:#2d3748}
+body.landing-light .phone-stats{background:#f7fafc;border-color:#e2e8f0;color:#718096}
+body.landing-light .card.float{background:#fff;border-color:#e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,.06)}
+body.landing-light .section{background:#fff}
+body.landing-light .section.dark{background:#f7fafc;border-color:#e2e8f0}
+body.landing-light .feat{background:#fff;border-color:#e2e8f0}
+body.landing-light .feat p{color:#718096}
+body.landing-light .price{background:#fff;border-color:#e2e8f0}
+body.landing-light .demo-form,.landing-light .demo-preview{background:#fff;border-color:#e2e8f0}
+body.landing-light .footer{background:#f7fafc;border-color:#e2e8f0;color:#718096}
