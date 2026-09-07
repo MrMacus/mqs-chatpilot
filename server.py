@@ -699,6 +699,7 @@ def call_ai(api_key, biz, history, text, user_name):
          f"10. **Out of Scope:** If you are unsure or out of scope, politely advise them to call the owner at {biz.get('contact')}.\n"
          f"11. **AI Disclosure:** Only disclose on the VERY FIRST greeting (hello/hi) or when asked who you are: 'I am {biz.get('name')} AI support, I will assist you, and I will let the owner know what we discuss.' Do NOT repeat this disclosure in the middle of conversation.\n"
          f"13. **Food/Buddle:** Food package: {biz.get('food_package','')} Price: {biz.get('food_price','')} Buddle: {biz.get('buddle_price','')}. If asked about food, offer the package/buddle price if available, but say owner will handle food details and confirm.\n"
+         f"14. **Always Next Step:** Always end with a helpful question or option, e.g., 'Anong date po para ma-check ko availability?' or 'Gusto nyo ba i-hold ko booking?' — never dead end, always guide to next step.\n"
     )
     contents = []
     for h in history[-8:]:
