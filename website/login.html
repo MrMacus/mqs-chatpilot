@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Login — MQS ChatPilot</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css">\n<link rel="stylesheet" href="light.css">
 <style>
 .auth-page{max-width:420px;margin:40px auto;padding:20px}
 .auth-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px}
@@ -21,7 +21,7 @@
 .err{background:#3a1f1f;border:1px solid var(--red);color:#ffb4b4;padding:8px;border-radius:8px;font-size:.85rem;display:none;margin-bottom:10px}
 </style>
 </head>
-<body>
+<body class="landing-light">
 <nav class="nav"><div class="nav-inner"><a class="brand" href="/"><span class="dot">●</span> MQS <strong>ChatPilot</strong></a><div class="nav-links"><a href="/">Home</a><a href="/#pricing">Pricing</a></div><div class="nav-cta"><a class="btn ghost" href="/register">Register</a></div></div></nav>
 <div class="auth-page">
   <div class="auth-card">
@@ -59,3 +59,4 @@ async function oauth(p){
 </script>
 </body>
 </html>
+
